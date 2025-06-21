@@ -21,7 +21,7 @@ The library follows a clean layered architecture:
 
 - **Entities Layer**: Core domain objects like Room, Monster, Position, etc.
 - **Services Layer**: Business logic for room generation and monster placement
-- **Repository Layer**: (Future) Data access for monsters, items, etc.
+- **Repository Layer**: Data access for monsters, treasure, and other external resources
 
 ## Basic Usage
 
@@ -101,11 +101,59 @@ for i, monster := range room.Monsters {
 }
 ```
 
+### Cleaning Up a Room and Calculating XP
+
+```go
+// Clean up a room (remove monsters) and calculate XP
+totalXP, notRemovedIDs, err := roomService.CleanupRoom(room, []string{})  // Empty slice removes all monsters
+if err != nil {
+    // Handle error
+}
+
+fmt.Printf("Total XP earned: %d\n", totalXP)
+```
+
+### Using the Monster Repository
+
+```go
+import (
+    "github.com/fadedpez/dnd5e-roomgen/internal/repositories"
+    "net/http"
+)
+
+// Create a monster repository that uses the DnD 5e API
+httpClient := &http.Client{Timeout: 10 * time.Second}
+monsterRepo := repositories.NewAPIMonsterRepository(httpClient)
+
+// Get monster XP
+xp, err := monsterRepo.GetMonsterXP("monster_goblin")
+if err != nil {
+    // Handle error
+}
+fmt.Printf("Goblin XP: %d\n", xp)
+```
+
+### Testing with the Repository Layer
+
+```go
+// Create a test monster repository for unit testing
+testRepo := &repositories.TestMonsterRepository{
+    xpValues: map[string]int{
+        "monster_goblin": 50,
+        "monster_orc": 100,
+    },
+}
+
+// Use the test repository in your service
+roomService := services.NewRoomService(testRepo)
+```
+
 ## Design Decisions
 
-- The library focuses on spatial layout and monster placement, not combat mechanics
-- Monster stats (AC, HP, etc.) are intentionally not included and should be handled by consumer applications
-- The service layer provides a clean API that hides implementation details
+- The library follows a clean layered architecture with clear separation of concerns
+- Repository interfaces allow for easy mocking and testing
+- The service layer depends on interfaces, not concrete implementations
+- External API dependencies are isolated in the repository layer
 
 ## Future Enhancements
 
@@ -127,7 +175,6 @@ The current implementation is an MVP focused on room generation and monster plac
 - Performance optimizations for large room complexes
 
 ### Architecture Evolution
-- Repository layer for data access (monsters, items, etc.)
 - Configuration system for library-wide settings
 - Event system for room generation lifecycle hooks
 - Extensibility points for custom generation algorithms
