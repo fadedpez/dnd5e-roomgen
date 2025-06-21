@@ -4,16 +4,27 @@ import (
 	"fmt"
 
 	"github.com/fadedpez/dnd5e-roomgen/internal/entities"
+	"github.com/fadedpez/dnd5e-roomgen/internal/repositories"
 	"github.com/google/uuid"
 )
 
 // RoomService handles the business logic for room generation and management
 type RoomService struct {
-	// we can add dependencies here later (monster repos, etc)
+	monsterRepo repositories.MonsterRepository
 }
 
-func NewRoomService() *RoomService {
-	return &RoomService{}
+// NewRoomService creates a new RoomService with the required dependencies
+func NewRoomService() (*RoomService, error) {
+	// Create a new API monster repository
+	monsterRepo, err := repositories.NewAPIMonsterRepository()
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the service with the repository interface
+	return &RoomService{
+		monsterRepo: monsterRepo,
+	}, nil
 }
 
 // RoomConfig contains all the parameters for room generation
@@ -118,4 +129,82 @@ func (s *RoomService) PopulateRoomWithMonsters(roomConfig RoomConfig, monsterCon
 	}
 
 	return room, nil
+}
+
+// CleanupRoom removes monsters from a room and returns XP gained
+// If monsterIDs is empty, all monsters are removed
+// Returns the total XP gained, a slice of monster IDs that weren't removed, and any error encountered
+func (s *RoomService) CleanupRoom(room *entities.Room, monsterIDs []string) (int, []string, error) {
+	if room == nil {
+		return 0, nil, fmt.Errorf("room cannot be nil")
+	}
+
+	// Track total XP gained and monsters not removed
+	totalXP := 0
+	notRemoved := []string{}
+
+	// If monsterIDs is empty, remove all monsters
+	if len(monsterIDs) == 0 {
+		// Process all monsters to calculate XP
+		for _, monster := range room.Monsters {
+			// Get XP from the repository
+			xp, err := s.monsterRepo.GetMonsterXP(monster.Key)
+			if err != nil {
+				// Log the error but continue
+				fmt.Printf("Warning: failed to get XP for monster %s: %v\n", monster.Key, err)
+			} else {
+				totalXP += xp
+			}
+		}
+
+		// Clear the grid of monsters
+		if room.Grid != nil {
+			for y := 0; y < room.Height; y++ {
+				for x := 0; x < room.Width; x++ {
+					if room.Grid[y][x].Type == entities.CellMonster {
+						room.Grid[y][x] = entities.Cell{Type: entities.CellTypeEmpty}
+					}
+				}
+			}
+		}
+
+		// Clear the monsters slice
+		room.Monsters = make([]entities.Monster, 0)
+	} else {
+		// Remove specific monsters by ID
+		for _, monsterID := range monsterIDs {
+			// Find the monster to get its key
+			var monsterKey string
+			for _, monster := range room.Monsters {
+				if monster.ID == monsterID {
+					monsterKey = monster.Key
+					break
+				}
+			}
+
+			if monsterKey != "" {
+				// Get XP from the repository
+				xp, err := s.monsterRepo.GetMonsterXP(monsterKey)
+				if err != nil {
+					// Log the error but continue
+					fmt.Printf("Warning: failed to get XP for monster %s: %v\n", monsterKey, err)
+				} else {
+					totalXP += xp
+				}
+			}
+
+			// Use the existing RemoveMonster function to handle removal
+			removed, err := entities.RemoveMonster(room, monsterID)
+			if err != nil {
+				return totalXP, notRemoved, fmt.Errorf("error removing monster %s: %w", monsterID, err)
+			}
+
+			// If monster wasn't found, add to notRemoved slice
+			if !removed {
+				notRemoved = append(notRemoved, monsterID)
+			}
+		}
+	}
+
+	return totalXP, notRemoved, nil
 }

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/fadedpez/dnd5e-roomgen/internal/entities"
@@ -83,7 +84,10 @@ func TestGenerateRoom(t *testing.T) {
 		},
 	}
 
-	service := NewRoomService()
+	service, err := NewRoomService()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -221,7 +225,10 @@ func TestAddMonstersToRoom(t *testing.T) {
 		},
 	}
 
-	service := NewRoomService()
+	service, err := NewRoomService()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -282,7 +289,10 @@ func TestPopulateRoomWithMonsters(t *testing.T) {
 		},
 	}
 
-	service := NewRoomService()
+	service, err := NewRoomService()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,4 +310,127 @@ func TestPopulateRoomWithMonsters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCleanupRoom(t *testing.T) {
+	// Create a mock monster repository for testing
+	mockRepo := &MockMonsterRepository{
+		xpValues: map[string]int{
+			"monster_Goblin": 50,
+			"monster_Orc":    100,
+			"monster_Troll":  450,
+		},
+	}
+
+	// Create a service with the mock repository
+	service := &RoomService{
+		monsterRepo: mockRepo,
+	}
+
+	testCases := []struct {
+		name          string
+		setupRoom     func() *entities.Room
+		monsterIDs    []string
+		expectedXP    int
+		expectedCount int      // Number of monsters that should remain after cleanup
+		notRemovedIDs []string // IDs of monsters that should not be removed
+	}{
+		{
+			name: "Remove all monsters",
+			setupRoom: func() *entities.Room {
+				room := entities.NewRoom(10, 10, entities.LightLevelBright)
+				entities.InitializeGrid(room)
+
+				// Add three different monsters
+				goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+				orc := entities.Monster{ID: "2", Key: "monster_Orc", Name: "Orc", Position: entities.Position{X: 3, Y: 3}}
+				troll := entities.Monster{ID: "3", Key: "monster_Troll", Name: "Troll", Position: entities.Position{X: 5, Y: 5}}
+
+				entities.AddMonster(room, goblin)
+				entities.AddMonster(room, orc)
+				entities.AddMonster(room, troll)
+
+				return room
+			},
+			monsterIDs:    []string{}, // Empty means remove all
+			expectedXP:    600,        // 50 + 100 + 450
+			expectedCount: 0,
+			notRemovedIDs: []string{}, // All should be removed
+		},
+		{
+			name: "Remove specific monsters",
+			setupRoom: func() *entities.Room {
+				room := entities.NewRoom(10, 10, entities.LightLevelBright)
+				entities.InitializeGrid(room)
+
+				// Add three different monsters
+				goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+				orc := entities.Monster{ID: "2", Key: "monster_Orc", Name: "Orc", Position: entities.Position{X: 3, Y: 3}}
+				troll := entities.Monster{ID: "3", Key: "monster_Troll", Name: "Troll", Position: entities.Position{X: 5, Y: 5}}
+
+				entities.AddMonster(room, goblin)
+				entities.AddMonster(room, orc)
+				entities.AddMonster(room, troll)
+
+				return room
+			},
+			monsterIDs:    []string{"1", "3"}, // Remove goblin and troll
+			expectedXP:    500,                // 50 + 450
+			expectedCount: 1,                  // Only orc should remain
+			notRemovedIDs: []string{},         // All specified monsters should be removed
+		},
+		{
+			name: "Remove non-existent monsters",
+			setupRoom: func() *entities.Room {
+				room := entities.NewRoom(10, 10, entities.LightLevelBright)
+				entities.InitializeGrid(room)
+
+				// Add one monster
+				goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+				entities.AddMonster(room, goblin)
+
+				return room
+			},
+			monsterIDs:    []string{"999"}, // Non-existent ID
+			expectedXP:    0,               // No monsters removed
+			expectedCount: 1,               // Monster should still be there
+			notRemovedIDs: []string{"999"}, // This ID should be in the not-removed list
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			room := tc.setupRoom()
+
+			xp, notRemoved, err := service.CleanupRoom(room, tc.monsterIDs)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expectedXP, xp, "Expected XP doesn't match")
+			assert.Equal(t, tc.notRemovedIDs, notRemoved, "Not removed IDs don't match")
+			assert.Equal(t, tc.expectedCount, len(room.Monsters), "Unexpected number of monsters remaining")
+
+			if tc.expectedCount > 0 {
+				// If we expect monsters to remain, make sure the right ones are there
+				if len(tc.monsterIDs) > 0 {
+					for _, monster := range room.Monsters {
+						for _, id := range tc.monsterIDs {
+							assert.NotEqual(t, id, monster.ID, "Monster with ID %s should have been removed", id)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// MockMonsterRepository is a mock implementation of the MonsterRepository interface for testing
+type MockMonsterRepository struct {
+	xpValues map[string]int
+}
+
+func (m *MockMonsterRepository) GetMonsterXP(monsterKey string) (int, error) {
+	if xp, ok := m.xpValues[monsterKey]; ok {
+		return xp, nil
+	}
+	return 0, fmt.Errorf("monster not found: %s", monsterKey)
 }
