@@ -11,6 +11,7 @@ import (
 // RoomService handles the business logic for room generation and management
 type RoomService struct {
 	monsterRepo repositories.MonsterRepository
+	balancer    Balancer
 }
 
 // NewRoomService creates a new RoomService with the required dependencies
@@ -21,9 +22,13 @@ func NewRoomService() (*RoomService, error) {
 		return nil, err
 	}
 
+	// Create a balancer with the same repository
+	balancer := NewBalancer(monsterRepo)
+
 	// Return the service with the repository interface
 	return &RoomService{
 		monsterRepo: monsterRepo,
+		balancer:    balancer,
 	}, nil
 }
 
@@ -205,6 +210,42 @@ func (s *RoomService) PopulateRoomWithMonstersAndPlayers(
 	}
 
 	return room, nil
+}
+
+// BalanceMonsterConfigs adjusts monster configurations based on party composition and desired difficulty
+func (s *RoomService) BalanceMonsterConfigs(monsterConfigs []MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) ([]MonsterConfig, error) {
+	return s.balancer.AdjustMonsterSelection(monsterConfigs, party, difficulty)
+}
+
+// PopulateRoomWithBalancedMonsters generates a room and populates it with monsters balanced for the party and difficulty
+func (s *RoomService) PopulateRoomWithBalancedMonsters(roomConfig RoomConfig, monsterConfigs []MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) (*entities.Room, error) {
+	// Generate the room
+	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate room: %w", err)
+	}
+
+	// Balance the monster configurations
+	balancedConfigs, err := s.BalanceMonsterConfigs(monsterConfigs, party, difficulty)
+	if err != nil {
+		return nil, fmt.Errorf("failed to balance monster configurations: %w", err)
+	}
+
+	// Add the balanced monsters to the room
+	if err := s.AddMonstersToRoom(room, balancedConfigs); err != nil {
+		return nil, fmt.Errorf("failed to add monsters to room: %w", err)
+	}
+
+	return room, nil
+}
+
+// DetermineRoomDifficulty determines the difficulty of a room's monster encounter for a given party
+func (s *RoomService) DetermineRoomDifficulty(room *entities.Room, party entities.Party) (entities.EncounterDifficulty, error) {
+	if room == nil {
+		return "", fmt.Errorf("room cannot be nil")
+	}
+
+	return s.balancer.DetermineEncounterDifficulty(room.Monsters, party)
 }
 
 // CleanupRoom removes monsters from a room and returns XP gained
