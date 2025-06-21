@@ -263,7 +263,9 @@ func TestPopulateRoomWithMonsters(t *testing.T) {
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Check room properties
 				assertRoomProperties(t, room, 10, 10, entities.LightLevelBright, true)
+				// Check monsters
 				assert.Len(t, room.Monsters, 2)
 				assert.Equal(t, "Goblin", room.Monsters[0].Name)
 			},
@@ -589,7 +591,6 @@ func TestPopulateRoomWithMonstersAndPlayers(t *testing.T) {
 			checkFunc: func(t *testing.T, room *entities.Room) {
 				// Check room properties
 				assertRoomProperties(t, room, 10, 10, entities.LightLevelBright, true)
-
 				// Check players
 				assert.Len(t, room.Players, 2)
 
@@ -677,4 +678,313 @@ func (m *MockMonsterRepository) GetMonsterXP(monsterKey string) (int, error) {
 		return xp, nil
 	}
 	return 0, fmt.Errorf("monster not found: %s", monsterKey)
+}
+
+func TestBalanceMonsterConfigs(t *testing.T) {
+	// Create a mock monster repository
+	mockRepo := &MockMonsterRepository{
+		xpValues: map[string]int{
+			"monster_goblin": 50,
+			"monster_orc":    100,
+			"monster_troll":  450,
+		},
+	}
+
+	// Create a room service with the mock repository
+	roomService := &RoomService{
+		monsterRepo: mockRepo,
+		balancer:    NewBalancer(mockRepo),
+	}
+
+	// Create a test party
+	party := entities.Party{
+		Members: []entities.PartyMember{
+			{Name: "Player1", Level: 5},
+			{Name: "Player2", Level: 5},
+			{Name: "Player3", Level: 5},
+			{Name: "Player4", Level: 5},
+		},
+	}
+
+	// Create monster configs
+	monsterConfigs := []MonsterConfig{
+		{Name: "Goblin", Key: "monster_goblin", CR: 0.25, Count: 2, RandomPlace: true},
+		{Name: "Orc", Key: "monster_orc", CR: 0.5, Count: 1, RandomPlace: true},
+	}
+
+	// Test cases
+	testCases := []struct {
+		name        string
+		configs     []MonsterConfig
+		party       entities.Party
+		difficulty  entities.EncounterDifficulty
+		expectError bool
+		checkFunc   func(t *testing.T, configs []MonsterConfig)
+	}{
+		{
+			name:        "Balance for medium difficulty",
+			configs:     monsterConfigs,
+			party:       party,
+			difficulty:  entities.EncounterDifficultyMedium,
+			expectError: false,
+			checkFunc: func(t *testing.T, configs []MonsterConfig) {
+				// Verify configs were adjusted
+				assert.Len(t, configs, 2)
+				totalCount := 0
+				for _, config := range configs {
+					totalCount += config.Count
+				}
+				// Original total was 3 (2 goblins + 1 orc)
+				// For a level 5 party of 4, medium difficulty should scale this up
+				assert.GreaterOrEqual(t, totalCount, 3)
+			},
+		},
+		{
+			name:        "Empty monster configs",
+			configs:     []MonsterConfig{},
+			party:       party,
+			difficulty:  entities.EncounterDifficultyEasy,
+			expectError: false,
+			checkFunc: func(t *testing.T, configs []MonsterConfig) {
+				assert.Empty(t, configs)
+			},
+		},
+		{
+			name:        "Empty party",
+			configs:     monsterConfigs,
+			party:       entities.Party{},
+			difficulty:  entities.EncounterDifficultyEasy,
+			expectError: true,
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			configs, err := roomService.BalanceMonsterConfigs(tc.configs, tc.party, tc.difficulty)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tc.checkFunc != nil {
+					tc.checkFunc(t, configs)
+				}
+			}
+		})
+	}
+}
+
+func TestPopulateRoomWithBalancedMonsters(t *testing.T) {
+	// Create a mock monster repository
+	mockRepo := &MockMonsterRepository{
+		xpValues: map[string]int{
+			"monster_goblin": 50,
+			"monster_orc":    100,
+		},
+	}
+
+	// Create a room service with the mock repository
+	roomService := &RoomService{
+		monsterRepo: mockRepo,
+		balancer:    NewBalancer(mockRepo),
+	}
+
+	// Create a test party
+	party := entities.Party{
+		Members: []entities.PartyMember{
+			{Name: "Player1", Level: 3},
+			{Name: "Player2", Level: 3},
+		},
+	}
+
+	// Create room config
+	roomConfig := RoomConfig{
+		Width:       10,
+		Height:      10,
+		LightLevel:  entities.LightLevelBright,
+		Description: "Test Room",
+		UseGrid:     true,
+	}
+
+	// Create monster configs
+	monsterConfigs := []MonsterConfig{
+		{Name: "Goblin", Key: "monster_goblin", CR: 0.25, Count: 2, RandomPlace: true},
+	}
+
+	// Test cases
+	testCases := []struct {
+		name           string
+		roomConfig     RoomConfig
+		monsterConfigs []MonsterConfig
+		party          entities.Party
+		difficulty     entities.EncounterDifficulty
+		expectError    bool
+		checkFunc      func(t *testing.T, room *entities.Room)
+	}{
+		{
+			name:           "Generate room with balanced monsters",
+			roomConfig:     roomConfig,
+			monsterConfigs: monsterConfigs,
+			party:          party,
+			difficulty:     entities.EncounterDifficultyHard,
+			expectError:    false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Verify room was created with correct dimensions
+				assert.Equal(t, 10, room.Width)
+				assert.Equal(t, 10, room.Height)
+
+				// Verify monsters were added
+				assert.NotEmpty(t, room.Monsters)
+
+				// For a level 3 party of 2, hard difficulty should have scaled up the monsters
+				assert.GreaterOrEqual(t, len(room.Monsters), 2)
+			},
+		},
+		{
+			name:           "Empty party",
+			roomConfig:     roomConfig,
+			monsterConfigs: monsterConfigs,
+			party:          entities.Party{},
+			difficulty:     entities.EncounterDifficultyEasy,
+			expectError:    true,
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			room, err := roomService.PopulateRoomWithBalancedMonsters(tc.roomConfig, tc.monsterConfigs, tc.party, tc.difficulty)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tc.checkFunc != nil {
+					tc.checkFunc(t, room)
+				}
+			}
+		})
+	}
+}
+
+func TestDetermineRoomDifficulty(t *testing.T) {
+	// Create a mock monster repository
+	mockRepo := &MockMonsterRepository{
+		xpValues: map[string]int{
+			"monster_goblin": 50,
+			"monster_orc":    100,
+			"monster_troll":  450,
+		},
+	}
+
+	// Create a room service with the mock repository
+	roomService := &RoomService{
+		monsterRepo: mockRepo,
+		balancer:    NewBalancer(mockRepo),
+	}
+
+	// Create a test party
+	party := entities.Party{
+		Members: []entities.PartyMember{
+			{Name: "Player1", Level: 5},
+			{Name: "Player2", Level: 5},
+			{Name: "Player3", Level: 5},
+			{Name: "Player4", Level: 5},
+		},
+	}
+
+	// Test cases
+	testCases := []struct {
+		name         string
+		setupRoom    func() *entities.Room
+		party        entities.Party
+		expectedDiff entities.EncounterDifficulty
+		expectError  bool
+	}{
+		{
+			name: "Empty room",
+			setupRoom: func() *entities.Room {
+				return &entities.Room{
+					Width:      10,
+					Height:     10,
+					LightLevel: entities.LightLevelBright,
+					Monsters:   []entities.Monster{},
+				}
+			},
+			party:        party,
+			expectedDiff: entities.EncounterDifficultyEasy,
+			expectError:  false,
+		},
+		{
+			name: "Easy encounter",
+			setupRoom: func() *entities.Room {
+				return &entities.Room{
+					Width:      10,
+					Height:     10,
+					LightLevel: entities.LightLevelBright,
+					Monsters: []entities.Monster{
+						{ID: "1", Name: "Goblin", CR: 0.25},
+						{ID: "2", Name: "Goblin", CR: 0.25},
+					},
+				}
+			},
+			party:        party,
+			expectedDiff: entities.EncounterDifficultyEasy,
+			expectError:  false,
+		},
+		{
+			name: "Hard encounter",
+			setupRoom: func() *entities.Room {
+				return &entities.Room{
+					Width:      10,
+					Height:     10,
+					LightLevel: entities.LightLevelBright,
+					Monsters: []entities.Monster{
+						{ID: "1", Name: "Troll", CR: 5},
+						{ID: "2", Name: "Troll", CR: 5},
+					},
+				}
+			},
+			party:        party,
+			expectedDiff: entities.EncounterDifficultyDeadly,
+			expectError:  false,
+		},
+		{
+			name:        "Nil room",
+			setupRoom:   func() *entities.Room { return nil },
+			party:       party,
+			expectError: true,
+		},
+		{
+			name: "Empty party",
+			setupRoom: func() *entities.Room {
+				return &entities.Room{
+					Width:      10,
+					Height:     10,
+					LightLevel: entities.LightLevelBright,
+					Monsters: []entities.Monster{
+						{ID: "1", Name: "Goblin", CR: 0.25},
+					},
+				}
+			},
+			party:       entities.Party{},
+			expectError: true,
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			room := tc.setupRoom()
+			difficulty, err := roomService.DetermineRoomDifficulty(room, tc.party)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedDiff, difficulty)
+			}
+		})
+	}
 }

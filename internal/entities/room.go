@@ -58,3 +58,20 @@ const (
 	LightLevelDim    LightLevel = "dim"
 	LightLevelDark   LightLevel = "dark"
 )
+
+// EncounterDifficulty represents the difficulty level of an encounter
+type EncounterDifficulty string
+
+const (
+	// EncounterDifficultyEasy represents an easy encounter
+	EncounterDifficultyEasy EncounterDifficulty = "easy"
+
+	// EncounterDifficultyMedium represents a medium encounter
+	EncounterDifficultyMedium EncounterDifficulty = "medium"
+
+	// EncounterDifficultyHard represents a hard encounter
+	EncounterDifficultyHard EncounterDifficulty = "hard"
+
+	// EncounterDifficultyDeadly represents a deadly encounter
+	EncounterDifficultyDeadly EncounterDifficulty = "deadly"
+)
