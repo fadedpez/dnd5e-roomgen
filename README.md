@@ -6,8 +6,10 @@ A Go library for generating dynamic rooms for Dungeons & Dragons 5th Edition adv
 
 - Generate room layouts with configurable dimensions and light levels
 - Place monsters with random or specific positioning
+- Place players with random or specific positioning
 - Automatic grid initialization for spatial tracking
 - Flexible service layer for easy integration with applications
+- Support for encounter balancing based on party composition
 
 ## Installation
 
@@ -19,8 +21,8 @@ go get github.com/fadedpez/dnd5e-roomgen
 
 The library follows a clean layered architecture:
 
-- **Entities Layer**: Core domain objects like Room, Monster, Position, etc.
-- **Services Layer**: Business logic for room generation and monster placement
+- **Entities Layer**: Core domain objects like Room, Monster, Player, Position, etc.
+- **Services Layer**: Business logic for room generation, entity placement, and encounter balancing
 - **Repository Layer**: Data access for monsters, treasure, and other external resources
 
 ## Basic Usage
@@ -81,6 +83,37 @@ if err != nil {
 }
 ```
 
+### Adding Players to a Room
+
+```go
+// Configure players
+playerConfigs := []services.PlayerConfig{
+    {
+        Name:        "Aragorn",
+        Level:       5,
+        RandomPlace: true, // Place player randomly in the room
+    },
+    {
+        Name:        "Gandalf",
+        Level:       10,
+        RandomPlace: false, // Place player at a specific position
+        Position:    &entities.Position{X: 2, Y: 2},
+    },
+}
+
+// Add players to the room
+err = roomService.AddPlayersToRoom(room, playerConfigs)
+if err != nil {
+    // Handle error
+}
+
+// Access player properties
+for i, player := range room.Players {
+    fmt.Printf("Player %d: %s (Level %d) at position (%d,%d)\n",
+        i+1, player.Name, player.Level, player.Position.X, player.Position.Y)
+}
+```
+
 ### Generating a Room with Monsters in One Step
 
 ```go
@@ -98,6 +131,47 @@ fmt.Printf("Light level: %s\n", room.LightLevel)
 for i, monster := range room.Monsters {
     fmt.Printf("Monster %d: %s (CR %.2f) at position (%d,%d)\n",
         i+1, monster.Name, monster.CR, monster.Position.X, monster.Position.Y)
+}
+```
+
+### Generating a Room with Both Players and Monsters
+
+```go
+// Generate a room and add both players and monsters in one step
+room, err := roomService.PopulateRoomWithMonstersAndPlayers(roomConfig, monsterConfigs, playerConfigs)
+if err != nil {
+    // Handle error
+}
+
+// Access room properties
+fmt.Printf("Room: %dx%d, %s\n", room.Width, room.Height, room.Description)
+
+// Access player properties
+for i, player := range room.Players {
+    fmt.Printf("Player %d: %s (Level %d) at position (%d,%d)\n",
+        i+1, player.Name, player.Level, player.Position.X, player.Position.Y)
+}
+
+// Access monster properties
+for i, monster := range room.Monsters {
+    fmt.Printf("Monster %d: %s (CR %.2f) at position (%d,%d)\n",
+        i+1, monster.Name, monster.CR, monster.Position.X, monster.Position.Y)
+}
+```
+
+### Removing Players from a Room
+
+```go
+// Remove a player by ID
+removed, err := entities.RemovePlayer(room, playerID)
+if err != nil {
+    // Handle error
+}
+
+if removed {
+    fmt.Println("Player successfully removed")
+} else {
+    fmt.Println("Player not found")
 }
 ```
 
