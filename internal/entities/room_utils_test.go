@@ -30,6 +30,16 @@ func createTestMonster(id string, x, y int) Monster {
 	}
 }
 
+// createTestPlayer creates a player with the given ID, level, and position
+func createTestPlayer(id string, level int, x, y int) Player {
+	return Player{
+		ID:       id,
+		Name:     "Player " + id,
+		Level:    level,
+		Position: Position{X: x, Y: y},
+	}
+}
+
 func TestNewRoom(t *testing.T) {
 	room := createTestRoom()
 
@@ -346,4 +356,106 @@ func TestCalculateDistance(t *testing.T) {
 			assert.Equal(t, tc.expected, reverseDistance, "Distance calculation incorrect in reverse")
 		})
 	}
+}
+
+func TestAddPlayer(t *testing.T) {
+	// Create a room with a grid
+	room := createTestRoom()
+
+	// Create a player
+	player := createTestPlayer("1", 5, 2, 2)
+
+	// Add the player to the room
+	err := AddPlayer(room, player)
+
+	// Verify the player was added successfully
+	assert.NoError(t, err)
+	assert.Len(t, room.Players, 1)
+	assert.Equal(t, player, room.Players[0])
+
+	// Verify the player was placed on the grid
+	assert.Equal(t, CellPlayer, room.Grid[player.Position.Y][player.Position.X].Type)
+	assert.Equal(t, player.ID, room.Grid[player.Position.Y][player.Position.X].EntityID)
+
+	// Test adding player to occupied cell
+	player2 := createTestPlayer("2", 3, 2, 2)
+
+	err = AddPlayer(room, player2)
+
+	// Should return an error
+	assert.Error(t, err)
+	assert.Len(t, room.Players, 1) // Player count should not change
+
+	// Test adding player with invalid position
+	player3 := createTestPlayer("3", 4, 10, 10)
+
+	err = AddPlayer(room, player3)
+
+	// Should return error
+	assert.Error(t, err)
+	assert.Len(t, room.Players, 1) // Player count should not change
+
+	// Test adding player to room without grid
+	roomNoGrid := createTestRoomNoGrid()
+	player4 := createTestPlayer("4", 6, 2, 2)
+
+	err = AddPlayer(roomNoGrid, player4)
+
+	// Should succeed (no grid to check)
+	assert.NoError(t, err)
+	assert.Len(t, roomNoGrid.Players, 1)
+	assert.Equal(t, player4, roomNoGrid.Players[0])
+}
+
+func TestRemovePlayer(t *testing.T) {
+	// Create a room with a grid
+	room := createTestRoom()
+
+	// Add players to the room
+	player1 := createTestPlayer("player1", 5, 1, 1)
+	player2 := createTestPlayer("player2", 3, 2, 2)
+
+	err := AddPlayer(room, player1)
+	assert.NoError(t, err)
+
+	err = AddPlayer(room, player2)
+	assert.NoError(t, err)
+
+	// Verify initial state
+	assert.Len(t, room.Players, 2)
+	assert.Equal(t, CellPlayer, room.Grid[1][1].Type)
+	assert.Equal(t, player1.ID, room.Grid[1][1].EntityID)
+	assert.Equal(t, CellPlayer, room.Grid[2][2].Type)
+	assert.Equal(t, player2.ID, room.Grid[2][2].EntityID)
+
+	// Remove player1
+	removed, err := RemovePlayer(room, "player1")
+	assert.NoError(t, err)
+	assert.True(t, removed)
+
+	// Verify player1 was removed
+	assert.Len(t, room.Players, 1)
+	assert.Equal(t, player2.ID, room.Players[0].ID)
+
+	// Verify the cell is now empty
+	assert.Equal(t, CellTypeEmpty, room.Grid[1][1].Type)
+	assert.Empty(t, room.Grid[1][1].EntityID)
+
+	// Try to remove a non-existent player
+	removed, err = RemovePlayer(room, "nonexistent")
+	assert.NoError(t, err)
+	assert.False(t, removed)
+	assert.Len(t, room.Players, 1)
+
+	// Test removing from room without grid
+	roomNoGrid := createTestRoomNoGrid()
+	player4 := createTestPlayer("player4", 7, 1, 1)
+
+	err = AddPlayer(roomNoGrid, player4)
+	assert.NoError(t, err)
+
+	removed, err = RemovePlayer(roomNoGrid, "player4")
+	assert.NoError(t, err)
+	assert.True(t, removed)
+	assert.Len(t, roomNoGrid.Players, 0)
 }

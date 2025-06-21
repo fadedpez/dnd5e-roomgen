@@ -13,6 +13,7 @@ func NewRoom(width, height int, lightLevel LightLevel) *Room {
 		Height:     height,
 		LightLevel: lightLevel,
 		Monsters:   make([]Monster, 0),
+		Players:    make([]Player, 0),
 	}
 	return room
 }
@@ -224,4 +225,81 @@ func CalculateDistance(pos1, pos2 Position) float64 {
 
 	// D&D 5e movement (diagonal counts as 1)
 	return math.Max(math.Abs(dx), math.Abs(dy))
+}
+
+// AddPlayer adds a player to the room and places them on the grid if available
+func AddPlayer(room *Room, player Player) error {
+	if room == nil {
+		return fmt.Errorf("cannot add player to nil room")
+	}
+
+	if room.Grid != nil {
+		pos := player.Position
+
+		// Check if position is valid
+		if pos.X < 0 || pos.X >= room.Width || pos.Y < 0 || pos.Y >= room.Height {
+			return fmt.Errorf("player position (%d, %d) is outside room bounds (%d, %d)",
+				pos.X, pos.Y, room.Width, room.Height)
+		}
+
+		// Check if cell is already occupied
+		if room.Grid[pos.Y][pos.X].Type != CellTypeEmpty {
+			return fmt.Errorf("cell (%d, %d) is already occupied", pos.X, pos.Y)
+		}
+
+		// Place player on grid
+		room.Grid[pos.Y][pos.X] = Cell{
+			Type:     CellPlayer,
+			EntityID: player.ID,
+		}
+	}
+
+	// Add to players slice
+	room.Players = append(room.Players, player)
+
+	return nil
+}
+
+// RemovePlayer removes a player from the room by their ID
+// Returns true if the player was found and removed, false otherwise
+// If the room has a grid, the cell where the player was is cleared
+func RemovePlayer(room *Room, playerID string) (bool, error) {
+	if room == nil {
+		return false, fmt.Errorf("cannot remove player from nil room")
+	}
+
+	// Find the player in the room's player slice
+	playerIndex := -1
+	var playerToRemove Player
+
+	for i, player := range room.Players {
+		if player.ID == playerID {
+			playerIndex = i
+			playerToRemove = player
+			break
+		}
+	}
+
+	// If player not found, return false
+	if playerIndex == -1 {
+		return false, nil
+	}
+
+	// If room has a grid, clear the cell
+	if room.Grid != nil {
+		pos := playerToRemove.Position
+
+		// Check if position is valid
+		if pos.X >= 0 && pos.X < room.Width && pos.Y >= 0 && pos.Y < room.Height {
+			// Only clear the cell if it contains this player
+			if room.Grid[pos.Y][pos.X].Type == CellPlayer && room.Grid[pos.Y][pos.X].EntityID == playerID {
+				room.Grid[pos.Y][pos.X] = Cell{Type: CellTypeEmpty}
+			}
+		}
+	}
+
+	// Remove the player from the room's player slice
+	room.Players = append(room.Players[:playerIndex], room.Players[playerIndex+1:]...)
+
+	return true, nil
 }

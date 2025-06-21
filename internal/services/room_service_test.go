@@ -423,6 +423,250 @@ func TestCleanupRoom(t *testing.T) {
 	}
 }
 
+// createTestPlayerConfig creates a standard player configuration for testing
+func createTestPlayerConfig(name string, level int, randomPlace bool, position *entities.Position) PlayerConfig {
+	config := PlayerConfig{
+		Name:        name,
+		Level:       level,
+		RandomPlace: randomPlace,
+	}
+
+	if position != nil {
+		config.Position = position
+	}
+
+	return config
+}
+
+func TestAddPlayersToRoom(t *testing.T) {
+	testCases := []struct {
+		name          string
+		roomSetup     func() *entities.Room
+		playerConfigs []PlayerConfig
+		expectError   bool
+		checkFunc     func(*testing.T, *entities.Room)
+	}{
+		{
+			name: "Single player with random placement",
+			roomSetup: func() *entities.Room {
+				room := entities.NewRoom(10, 10, entities.LightLevelBright)
+				entities.InitializeGrid(room)
+				return room
+			},
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Aragorn", 5, true, nil),
+			},
+			expectError: false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				assert.Len(t, room.Players, 1)
+				assert.Equal(t, "Aragorn", room.Players[0].Name)
+				assert.Equal(t, 5, room.Players[0].Level)
+			},
+		},
+		{
+			name: "Multiple players with specific positions",
+			roomSetup: func() *entities.Room {
+				room := entities.NewRoom(10, 10, entities.LightLevelBright)
+				entities.InitializeGrid(room)
+				return room
+			},
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Gandalf", 10, false, &entities.Position{X: 1, Y: 1}),
+				createTestPlayerConfig("Frodo", 3, false, &entities.Position{X: 2, Y: 2}),
+			},
+			expectError: false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				assert.Len(t, room.Players, 2)
+
+				// Find players by name
+				var gandalf, frodo *entities.Player
+				for i := range room.Players {
+					if room.Players[i].Name == "Gandalf" {
+						gandalf = &room.Players[i]
+					} else if room.Players[i].Name == "Frodo" {
+						frodo = &room.Players[i]
+					}
+				}
+
+				assert.NotNil(t, gandalf)
+				assert.NotNil(t, frodo)
+
+				assert.Equal(t, 10, gandalf.Level)
+				assert.Equal(t, 3, frodo.Level)
+
+				assert.Equal(t, 1, gandalf.Position.X)
+				assert.Equal(t, 1, gandalf.Position.Y)
+				assert.Equal(t, 2, frodo.Position.X)
+				assert.Equal(t, 2, frodo.Position.Y)
+			},
+		},
+		{
+			name: "Player with invalid position",
+			roomSetup: func() *entities.Room {
+				room := entities.NewRoom(5, 5, entities.LightLevelBright)
+				entities.InitializeGrid(room)
+				return room
+			},
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Legolas", 7, false, &entities.Position{X: 10, Y: 10}),
+			},
+			expectError: true,
+		},
+		{
+			name: "Player with no position and not random",
+			roomSetup: func() *entities.Room {
+				room := entities.NewRoom(5, 5, entities.LightLevelBright)
+				entities.InitializeGrid(room)
+				return room
+			},
+			playerConfigs: []PlayerConfig{
+				func() PlayerConfig {
+					config := createTestPlayerConfig("Gimli", 6, false, nil)
+					return config
+				}(),
+			},
+			expectError: true,
+		},
+		{
+			name: "Add player to room without grid",
+			roomSetup: func() *entities.Room {
+				return entities.NewRoom(5, 5, entities.LightLevelBright)
+			},
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Boromir", 5, true, nil),
+			},
+			expectError: false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				assert.Len(t, room.Players, 1)
+				assert.NotNil(t, room.Grid) // Grid should be initialized
+			},
+		},
+	}
+
+	service, err := NewRoomService()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			room := tc.roomSetup()
+			err := service.AddPlayersToRoom(room, tc.playerConfigs)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tc.checkFunc != nil {
+					tc.checkFunc(t, room)
+				}
+			}
+		})
+	}
+}
+
+func TestPopulateRoomWithMonstersAndPlayers(t *testing.T) {
+	testCases := []struct {
+		name           string
+		roomConfig     RoomConfig
+		playerConfigs  []PlayerConfig
+		monsterConfigs []MonsterConfig
+		expectError    bool
+		checkFunc      func(*testing.T, *entities.Room)
+	}{
+		{
+			name:       "Room with players and monsters",
+			roomConfig: createTestRoomConfig(10, 10, entities.LightLevelBright, true),
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Aragorn", 5, true, nil),
+				createTestPlayerConfig("Legolas", 5, true, nil),
+			},
+			monsterConfigs: []MonsterConfig{
+				createTestMonsterConfig("Goblin", 0.25, 3, true, nil),
+				createTestMonsterConfig("Orc", 0.5, 1, false, &entities.Position{X: 5, Y: 5}),
+			},
+			expectError: false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Check room properties
+				assertRoomProperties(t, room, 10, 10, entities.LightLevelBright, true)
+
+				// Check players
+				assert.Len(t, room.Players, 2)
+
+				// Check monsters
+				assert.Len(t, room.Monsters, 4) // 3 goblins + 1 orc
+
+				// Find the orc (should be at position 5,5)
+				var orcFound bool
+				for _, monster := range room.Monsters {
+					if monster.Name == "Orc" {
+						assert.Equal(t, 5, monster.Position.X)
+						assert.Equal(t, 5, monster.Position.Y)
+						orcFound = true
+						break
+					}
+				}
+				assert.True(t, orcFound, "Orc should be found at the specified position")
+			},
+		},
+		{
+			name:       "Invalid room config",
+			roomConfig: createTestRoomConfig(-5, 10, entities.LightLevelBright, true),
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Aragorn", 5, true, nil),
+			},
+			monsterConfigs: []MonsterConfig{
+				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+			},
+			expectError: true,
+		},
+		{
+			name:       "Invalid player config",
+			roomConfig: createTestRoomConfig(10, 10, entities.LightLevelBright, true),
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Aragorn", 5, false, nil), // Missing position
+			},
+			monsterConfigs: []MonsterConfig{
+				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+			},
+			expectError: true,
+		},
+		{
+			name:       "Invalid monster config",
+			roomConfig: createTestRoomConfig(10, 10, entities.LightLevelBright, true),
+			playerConfigs: []PlayerConfig{
+				createTestPlayerConfig("Aragorn", 5, true, nil),
+			},
+			monsterConfigs: []MonsterConfig{
+				createTestMonsterConfig("Goblin", 0.25, 1, false, nil), // Missing position
+			},
+			expectError: true,
+		},
+	}
+
+	service, err := NewRoomService()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			room, err := service.PopulateRoomWithMonstersAndPlayers(tc.roomConfig, tc.monsterConfigs, tc.playerConfigs)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, room)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, room)
+				if tc.checkFunc != nil {
+					tc.checkFunc(t, room)
+				}
+			}
+		})
+	}
+}
+
 // MockMonsterRepository is a mock implementation of the MonsterRepository interface for testing
 type MockMonsterRepository struct {
 	xpValues map[string]int
