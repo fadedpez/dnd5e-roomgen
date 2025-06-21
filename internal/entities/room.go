@@ -7,6 +7,7 @@ const (
 	CellTypeEmpty CellType = iota
 	CellMonster
 	CellItem
+	CellPlayer
 )
 
 // Cell represents a single cell in the room grid
@@ -31,6 +32,14 @@ type Monster struct {
 
 }
 
+// Player represents a player character placed in the room
+type Player struct {
+	ID       string   // UUID for this player instance
+	Name     string   // Name of the player character
+	Level    int      // Level of the player character
+	Position Position // Position of the player in the room (if grid is used)
+}
+
 // Room represents a rectangular room in a dungeon
 type Room struct {
 	Width       int        // Width of the room in grid units
@@ -38,6 +47,7 @@ type Room struct {
 	LightLevel  LightLevel // Light level of the room
 	Description string     // "bright", "dim", or "dark"
 	Monsters    []Monster  // Monsters in the room
+	Players     []Player   // Players in the room
 	Grid        [][]Cell   // Grid of cells in the room (if grid is used)
 }
 

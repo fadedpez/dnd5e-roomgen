@@ -46,6 +46,14 @@ type MonsterConfig struct {
 	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
 }
 
+// PlayerConfig contains parameters for player character placement
+type PlayerConfig struct {
+	Name        string
+	Level       int                // Character level
+	RandomPlace bool               // Whether to place player randomly
+	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
+}
+
 // GenerateRoom creates a new room based on the provided configuration
 func (s *RoomService) GenerateRoom(config RoomConfig) (*entities.Room, error) {
 	if config.Width <= 0 || config.Height <= 0 {
@@ -114,10 +122,78 @@ func (s *RoomService) AddMonstersToRoom(room *entities.Room, monsterConfigs []Mo
 	return nil
 }
 
+// AddPlayersToRoom adds players to a room based on the provided configuration
+func (s *RoomService) AddPlayersToRoom(room *entities.Room, playerConfigs []PlayerConfig) error {
+	if room == nil {
+		return fmt.Errorf("room cannot be nil")
+	}
+
+	// Check if we need to initialize the grid for player placement
+	if room.Grid == nil && len(playerConfigs) > 0 {
+		entities.InitializeGrid(room)
+	}
+
+	for _, config := range playerConfigs {
+		player := entities.Player{
+			ID:    uuid.NewString(),
+			Name:  config.Name,
+			Level: config.Level,
+		}
+
+		// Place player either randomly or at a specific position
+		if config.RandomPlace {
+			position, err := entities.FindEmptyPosition(room)
+			if err != nil {
+				return fmt.Errorf("failed to place player %s: %w", config.Name, err)
+			}
+			player.Position = position
+		} else if config.Position != nil {
+			// Use the specified position
+			player.Position = *config.Position
+		} else {
+			return fmt.Errorf("player %s must have a position when RandomPlace is false", config.Name)
+		}
+
+		// Add the player to the room
+		if err := entities.AddPlayer(room, player); err != nil {
+			return fmt.Errorf("failed to add player %s: %w", config.Name, err)
+		}
+	}
+
+	return nil
+}
+
 // PopulateRoomWithMonsters is a convenience method that creates a room and populates it with monsters
 func (s *RoomService) PopulateRoomWithMonsters(roomConfig RoomConfig, monsterConfigs []MonsterConfig) (*entities.Room, error) {
 	// First generate the room
 	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then add monsters to it
+	err = s.AddMonstersToRoom(room, monsterConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	return room, nil
+}
+
+// PopulateRoomWithMonstersAndPlayers is a convenience method that creates a room and populates it with monsters and players
+func (s *RoomService) PopulateRoomWithMonstersAndPlayers(
+	roomConfig RoomConfig,
+	monsterConfigs []MonsterConfig,
+	playerConfigs []PlayerConfig) (*entities.Room, error) {
+
+	// First generate the room
+	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add players to the room
+	err = s.AddPlayersToRoom(room, playerConfigs)
 	if err != nil {
 		return nil, err
 	}
