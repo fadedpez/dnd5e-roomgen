@@ -10,6 +10,7 @@ A Go library for generating dynamic rooms for Dungeons & Dragons 5th Edition adv
 - Place items with random or specific positioning
 - Generate treasure rooms with scaled loot based on party size and difficulty
 - Automatic grid initialization for spatial tracking
+- Support for gridless rooms when spatial positioning is not needed
 - Flexible service layer for easy integration with applications
 - Support for encounter balancing based on party composition
 
@@ -31,6 +32,8 @@ The library follows a clean layered architecture:
 
 ### Generating a Room
 
+The library supports two types of rooms: grid-based and gridless. The choice depends on your application's needs.
+
 ```go
 import (
     "github.com/fadedpez/dnd5e-roomgen/internal/entities"
@@ -39,14 +42,23 @@ import (
 
 // Create a room service
 roomService := services.NewRoomService()
+```
 
-// Configure a room
+#### Grid-Based Rooms
+
+Grid-based rooms are ideal when you need:
+- Spatial positioning and distance calculations
+- Cell-based occupancy tracking
+- Position validation to prevent entity overlap
+
+```go
+// Configure a grid-based room
 roomConfig := services.RoomConfig{
     Width:       15,
     Height:      10,
     LightLevel:  entities.LightLevelDim,
     Description: "A dimly lit dungeon chamber",
-    UseGrid:     true,
+    UseGrid:     true,  // Enable grid for this room
 }
 
 // Generate the room
@@ -54,6 +66,51 @@ room, err := roomService.GenerateRoom(roomConfig)
 if err != nil {
     // Handle error
 }
+
+// With a grid-based room:
+// - Entities can only be placed on empty cells
+// - Position validation prevents overlap
+// - Grid cells track occupancy
+```
+
+#### Gridless Rooms
+
+Gridless rooms are useful when:
+- Spatial positioning is not important
+- You only need to track entity existence
+- You want simplified room management
+- You need better performance for rooms with many entities
+
+```go
+// Configure a gridless room
+roomConfig := services.RoomConfig{
+    Width:       15,
+    Height:      10,
+    LightLevel:  entities.LightLevelDim,
+    Description: "A dimly lit dungeon chamber",
+    UseGrid:     false,  // Disable grid for this room
+}
+
+// Generate the gridless room
+room, err := roomService.GenerateRoom(roomConfig)
+if err != nil {
+    // Handle error
+}
+
+// With a gridless room:
+// - Entities still have positions assigned (within room bounds)
+// - No position validation or overlap prevention
+// - No grid cell occupancy tracking
+// - Positions can be used for visual representation if needed
+```
+
+In both cases, the same entity placement interface is used, making your code consistent regardless of the room type:
+
+```go
+// These methods work the same for both grid-based and gridless rooms
+err = roomService.AddMonstersToRoom(room, monsterConfigs)
+err = roomService.AddPlayersToRoom(room, playerConfigs)
+err = roomService.AddItemsToRoom(room, itemConfigs)
 ```
 
 ### Adding Monsters to a Room
@@ -295,6 +352,53 @@ testRepo := &repositories.TestMonsterRepository{
 // Use the test repository in your service
 roomService := services.NewRoomService(testRepo)
 ```
+
+## Advanced Features
+
+### Gridless Rooms
+
+The library supports gridless rooms for applications that don't need spatial positioning or distance calculations:
+
+```go
+// Configure a gridless room
+roomConfig := services.RoomConfig{
+    Width:       15,
+    Height:      10,
+    LightLevel:  entities.LightLevelDim,
+    Description: "A dimly lit dungeon chamber",
+    UseGrid:     false,  // Disable grid for this room
+}
+
+// Generate the gridless room
+room, err := roomService.GenerateRoom(roomConfig)
+if err != nil {
+    // Handle error
+}
+
+// Add entities to the gridless room
+// Entities will still have positions assigned but no grid validation will occur
+err = roomService.AddMonstersToRoom(room, monsterConfigs)
+if err != nil {
+    // Handle error
+}
+
+// The placement interface handles gridless rooms automatically
+// No need for special configuration in entity addition methods
+```
+
+When using gridless rooms:
+
+1. Entities are still added to their respective slices (`Monsters`, `Players`, `Items`)
+2. Positions are still assigned but not validated against a grid
+3. No grid cell occupancy tracking occurs
+4. The `FindEmptyPosition` function returns random positions within room bounds
+5. All placement interface methods work seamlessly with both grid and gridless rooms
+
+Gridless rooms are useful for:
+- Applications that only need to track entity existence, not positions
+- Scenarios where distance calculations are not needed
+- Simplified room management without spatial constraints
+- Improved performance for large rooms with many entities
 
 ## Design Decisions
 

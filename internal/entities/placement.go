@@ -12,9 +12,31 @@ var (
 
 // PlaceEntity adds a placeable entity to a room at its current position
 // If the position is invalid or the cell is occupied, returns an error
+// For gridless rooms (room.Grid == nil), position validation is skipped
 func PlaceEntity(room *Room, entity Placeable) error {
 	if room == nil {
 		return ErrNilRoom
+	}
+
+	// Add entity to the appropriate slice based on its type
+	switch entity.GetCellType() {
+	case CellMonster:
+		if monster, ok := entity.(*Monster); ok {
+			room.Monsters = append(room.Monsters, *monster)
+		}
+	case CellPlayer:
+		if player, ok := entity.(*Player); ok {
+			room.Players = append(room.Players, *player)
+		}
+	case CellItem:
+		if item, ok := entity.(*Item); ok {
+			room.Items = append(room.Items, *item)
+		}
+	}
+
+	// If this is a gridless room, we're done
+	if room.Grid == nil {
+		return nil
 	}
 
 	pos := entity.GetPosition()
@@ -36,27 +58,12 @@ func PlaceEntity(room *Room, entity Placeable) error {
 		EntityID: entity.GetID(),
 	}
 
-	// Add entity to the appropriate slice based on its type
-	switch entity.GetCellType() {
-	case CellMonster:
-		if monster, ok := entity.(*Monster); ok {
-			room.Monsters = append(room.Monsters, *monster)
-		}
-	case CellPlayer:
-		if player, ok := entity.(*Player); ok {
-			room.Players = append(room.Players, *player)
-		}
-	case CellItem:
-		if item, ok := entity.(*Item); ok {
-			room.Items = append(room.Items, *item)
-		}
-	}
-
 	return nil
 }
 
 // RemoveEntity removes a placeable entity from a room by ID and cell type
 // Returns true if the entity was found and removed, false otherwise
+// For gridless rooms (room.Grid == nil), grid updates are skipped
 func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 	if room == nil {
 		return false
@@ -67,11 +74,13 @@ func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 	case CellMonster:
 		for i, monster := range room.Monsters {
 			if monster.ID == entityID {
-				// Clear grid cell
-				pos := monster.Position
-				room.Grid[pos.Y][pos.X] = Cell{
-					Type:     CellTypeEmpty,
-					EntityID: "",
+				// Clear grid cell if grid exists
+				if room.Grid != nil {
+					pos := monster.Position
+					room.Grid[pos.Y][pos.X] = Cell{
+						Type:     CellTypeEmpty,
+						EntityID: "",
+					}
 				}
 
 				// Remove monster from slice
@@ -82,11 +91,13 @@ func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 	case CellPlayer:
 		for i, player := range room.Players {
 			if player.ID == entityID {
-				// Clear grid cell
-				pos := player.Position
-				room.Grid[pos.Y][pos.X] = Cell{
-					Type:     CellTypeEmpty,
-					EntityID: "",
+				// Clear grid cell if grid exists
+				if room.Grid != nil {
+					pos := player.Position
+					room.Grid[pos.Y][pos.X] = Cell{
+						Type:     CellTypeEmpty,
+						EntityID: "",
+					}
 				}
 
 				// Remove player from slice
@@ -97,11 +108,13 @@ func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 	case CellItem:
 		for i, item := range room.Items {
 			if item.ID == entityID {
-				// Clear grid cell
-				pos := item.Position
-				room.Grid[pos.Y][pos.X] = Cell{
-					Type:     CellTypeEmpty,
-					EntityID: "",
+				// Clear grid cell if grid exists
+				if room.Grid != nil {
+					pos := item.Position
+					room.Grid[pos.Y][pos.X] = Cell{
+						Type:     CellTypeEmpty,
+						EntityID: "",
+					}
 				}
 
 				// Remove item from slice
@@ -116,9 +129,18 @@ func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 
 // FindEmptyPosition finds an empty position in the room
 // Returns the position and nil error if successful, or an error if no empty position is found
+// For gridless rooms (room.Grid == nil), returns a random position within room dimensions
 func FindEmptyPosition(room *Room) (Position, error) {
 	if room == nil {
 		return Position{}, ErrNilRoom
+	}
+
+	// For gridless rooms, return a random position within room dimensions
+	if room.Grid == nil {
+		return Position{
+			X: rand.Intn(room.Width),
+			Y: rand.Intn(room.Height),
+		}, nil
 	}
 
 	// Try to find an empty position

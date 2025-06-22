@@ -106,10 +106,8 @@ func (s *RoomService) AddMonstersToRoom(room *entities.Room, monsterConfigs []Mo
 		return fmt.Errorf("room cannot be nil")
 	}
 
-	// Check if we need to initialize the grid for monster placement
-	if room.Grid == nil && len(monsterConfigs) > 0 {
-		entities.InitializeGrid(room)
-	}
+	// We no longer force grid initialization
+	// The placement interface will handle gridless rooms properly
 
 	for _, config := range monsterConfigs {
 		for i := 0; i < config.Count; i++ {
@@ -150,10 +148,8 @@ func (s *RoomService) AddPlayersToRoom(room *entities.Room, playerConfigs []Play
 		return fmt.Errorf("room cannot be nil")
 	}
 
-	// Check if we need to initialize the grid for player placement
-	if room.Grid == nil && len(playerConfigs) > 0 {
-		entities.InitializeGrid(room)
-	}
+	// We no longer force grid initialization
+	// The placement interface will handle gridless rooms properly
 
 	for _, config := range playerConfigs {
 		player := entities.Player{
@@ -191,10 +187,8 @@ func (s *RoomService) AddItemsToRoom(room *entities.Room, itemConfigs []ItemConf
 		return fmt.Errorf("room cannot be nil")
 	}
 
-	// Check if we need to initialize the grid for item placement
-	if room.Grid == nil && len(itemConfigs) > 0 {
-		entities.InitializeGrid(room)
-	}
+	// We no longer force grid initialization
+	// The placement interface will handle gridless rooms properly
 
 	for _, config := range itemConfigs {
 		for i := 0; i < config.Count; i++ {
