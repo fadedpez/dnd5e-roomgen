@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/fadedpez/dnd5e-roomgen/internal/entities"
 	"github.com/fadedpez/dnd5e-roomgen/internal/repositories"
@@ -11,6 +12,7 @@ import (
 // RoomService handles the business logic for room generation and management
 type RoomService struct {
 	monsterRepo repositories.MonsterRepository
+	itemRepo    repositories.ItemRepository
 	balancer    Balancer
 }
 
@@ -22,12 +24,19 @@ func NewRoomService() (*RoomService, error) {
 		return nil, err
 	}
 
+	// Create a new API item repository
+	itemRepo, err := repositories.NewAPIItemRepository()
+	if err != nil {
+		return nil, err
+	}
+
 	// Create a balancer with the same repository
 	balancer := NewBalancer(monsterRepo)
 
 	// Return the service with the repository interface
 	return &RoomService{
 		monsterRepo: monsterRepo,
+		itemRepo:    itemRepo,
 		balancer:    balancer,
 	}, nil
 }
@@ -56,6 +65,14 @@ type PlayerConfig struct {
 	Name        string
 	Level       int                // Character level
 	RandomPlace bool               // Whether to place player randomly
+	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
+}
+
+// ItemConfig contains parameters for item generation
+type ItemConfig struct {
+	Key         string             // Item key for lookup
+	Count       int                // Number of this item type to add
+	RandomPlace bool               // Whether to place items randomly
 	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
 }
 
@@ -168,6 +185,61 @@ func (s *RoomService) AddPlayersToRoom(room *entities.Room, playerConfigs []Play
 	return nil
 }
 
+// AddItemsToRoom adds items to a room based on the provided configuration
+func (s *RoomService) AddItemsToRoom(room *entities.Room, itemConfigs []ItemConfig) error {
+	if room == nil {
+		return fmt.Errorf("room cannot be nil")
+	}
+
+	// Check if we need to initialize the grid for item placement
+	if room.Grid == nil && len(itemConfigs) > 0 {
+		entities.InitializeGrid(room)
+	}
+
+	for _, config := range itemConfigs {
+		for i := 0; i < config.Count; i++ {
+			// Fetch item data from repository
+			itemData, err := s.itemRepo.GetItemByKey(config.Key)
+			if err != nil {
+				return fmt.Errorf("failed to get item data for %s: %w", config.Key, err)
+			}
+
+			// Create a copy of the item with a unique ID
+			item := entities.Item{
+				ID:        uuid.NewString(),
+				Key:       itemData.Key,
+				Name:      itemData.Name,
+				Type:      itemData.Type,
+				Category:  itemData.Category,
+				Value:     itemData.Value,
+				ValueUnit: itemData.ValueUnit,
+				Weight:    itemData.Weight,
+			}
+
+			// Place item either randomly or at a specific position
+			if config.RandomPlace {
+				position, err := entities.FindEmptyPosition(room)
+				if err != nil {
+					return fmt.Errorf("failed to place item %s: %w", config.Key, err)
+				}
+				item.Position = position
+			} else if config.Position != nil {
+				// Use the specified position
+				item.Position = *config.Position
+			} else {
+				return fmt.Errorf("item %s must have a position when RandomPlace is false", config.Key)
+			}
+
+			// Add the item to the room
+			if err := entities.AddItem(room, item); err != nil {
+				return fmt.Errorf("failed to add item %s: %w", config.Key, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // PopulateRoomWithMonsters is a convenience method that creates a room and populates it with monsters
 func (s *RoomService) PopulateRoomWithMonsters(roomConfig RoomConfig, monsterConfigs []MonsterConfig) (*entities.Room, error) {
 	// First generate the room
@@ -212,6 +284,351 @@ func (s *RoomService) PopulateRoomWithMonstersAndPlayers(
 	return room, nil
 }
 
+// PopulateRoomWithItems is a convenience method that creates a room and populates it with items
+func (s *RoomService) PopulateRoomWithItems(roomConfig RoomConfig, itemConfigs []ItemConfig) (*entities.Room, error) {
+	// Generate the room
+	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add items to it
+	err = s.AddItemsToRoom(room, itemConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	return room, nil
+}
+
+// PopulateRoomWithMonstersAndItems is a convenience method that creates a room and populates it with monsters and items
+func (s *RoomService) PopulateRoomWithMonstersAndItems(
+	roomConfig RoomConfig,
+	monsterConfigs []MonsterConfig,
+	itemConfigs []ItemConfig) (*entities.Room, error) {
+
+	// Generate the room
+	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add monsters to it
+	err = s.AddMonstersToRoom(room, monsterConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add items to it
+	err = s.AddItemsToRoom(room, itemConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	return room, nil
+}
+
+// PopulateRoomWithAll is a convenience method that creates a room and populates it with monsters, players, and items
+func (s *RoomService) PopulateRoomWithAll(
+	roomConfig RoomConfig,
+	monsterConfigs []MonsterConfig,
+	playerConfigs []PlayerConfig,
+	itemConfigs []ItemConfig) (*entities.Room, error) {
+
+	// Generate the room
+	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add players first so they get priority placement
+	err = s.AddPlayersToRoom(room, playerConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then add monsters
+	err = s.AddMonstersToRoom(room, monsterConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally add items
+	err = s.AddItemsToRoom(room, itemConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	return room, nil
+}
+
+// PopulateTreasureRoom creates a room specifically designed to contain treasure items
+func (s *RoomService) PopulateTreasureRoom(
+	roomConfig RoomConfig,
+	itemCount int,
+	guardianMonsterConfigs []MonsterConfig) (*entities.Room, error) {
+
+	// Generate the room
+	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the room type to treasure
+	room.RoomType = &entities.TreasureRoomType{}
+
+	// Check if there's enough space for the items
+	// We need at least one cell per item
+	availableSpace := room.Width * room.Height
+
+	// Account for guardian monsters if specified
+	monsterCount := 0
+	for _, config := range guardianMonsterConfigs {
+		monsterCount += config.Count
+	}
+
+	availableSpace -= monsterCount
+
+	if itemCount > availableSpace {
+		return nil, fmt.Errorf("not enough space in room for %d items (available space: %d)",
+			itemCount, availableSpace)
+	}
+
+	// Get random valuable items
+	items, err := s.itemRepo.GetRandomItems(itemCount)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get random items: %w", err)
+	}
+
+	// Convert items to item configs
+	itemConfigs := make([]ItemConfig, len(items))
+	for i, item := range items {
+		itemConfigs[i] = ItemConfig{
+			Key:         item.Key,
+			Count:       1,
+			RandomPlace: true,
+		}
+	}
+
+	// Add items to the room
+	err = s.AddItemsToRoom(room, itemConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add guardian monsters if specified
+	if len(guardianMonsterConfigs) > 0 {
+		err = s.AddMonstersToRoom(room, guardianMonsterConfigs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return room, nil
+}
+
+// PopulateRandomTreasureRoomWithParty creates a treasure room with loot scaled appropriately for the party
+// and adds the party to the room. The room should be cleared after all treasure is collected.
+func (s *RoomService) PopulateRandomTreasureRoomWithParty(
+	roomConfig RoomConfig,
+	party entities.Party,
+	includeGuardian bool,
+	difficulty entities.EncounterDifficulty) (*entities.Room, error) {
+
+	if len(party.Members) == 0 {
+		return nil, fmt.Errorf("party must have at least one member")
+	}
+
+	// Calculate average party level
+	totalLevels := 0
+	for _, member := range party.Members {
+		totalLevels += member.Level
+	}
+	avgLevel := float64(totalLevels) / float64(len(party.Members))
+	partySize := len(party.Members)
+
+	// Scale item count based on party size and level
+	// Base formula: 1 item per party member + 1 item per 3 levels (average)
+	baseItemCount := partySize + int(avgLevel/3)
+
+	// Adjust based on difficulty
+	itemMultiplier := 1.0
+	switch difficulty {
+	case entities.EncounterDifficultyEasy:
+		itemMultiplier = 0.75
+	case entities.EncounterDifficultyMedium:
+		itemMultiplier = 1.0
+	case entities.EncounterDifficultyHard:
+		itemMultiplier = 1.25
+	case entities.EncounterDifficultyDeadly:
+		itemMultiplier = 1.5
+	}
+
+	itemCount := int(float64(baseItemCount) * itemMultiplier)
+	if itemCount < 1 {
+		itemCount = 1 // Ensure at least one item
+	}
+
+	// Determine item categories based on party level
+	var itemCategories []string
+
+	// Add weapon categories based on level
+	if avgLevel >= 5 {
+		itemCategories = append(itemCategories, "martial-weapons")
+	} else {
+		itemCategories = append(itemCategories, "simple-weapons")
+	}
+
+	// Add armor categories based on level
+	if avgLevel >= 10 {
+		itemCategories = append(itemCategories, "heavy-armor")
+	} else if avgLevel >= 5 {
+		itemCategories = append(itemCategories, "medium-armor")
+	} else {
+		itemCategories = append(itemCategories, "light-armor")
+	}
+
+	// Always include potions and adventuring gear
+	itemCategories = append(itemCategories, "potion", "adventuring-gear")
+
+	// Add guardian monsters if requested
+	var guardianMonsterConfigs []MonsterConfig
+	if includeGuardian {
+		// Create a guardian appropriate for the party's level
+		guardianCR := math.Max(1.0, avgLevel-2) // CR slightly below party level
+
+		// For higher difficulties, make the guardian tougher
+		if difficulty == entities.EncounterDifficultyHard || difficulty == entities.EncounterDifficultyDeadly {
+			guardianCR = math.Max(1.0, avgLevel) // CR equal to party level
+		}
+
+		guardianMonsterConfigs = []MonsterConfig{
+			{
+				Name:        "Guardian",
+				CR:          guardianCR,
+				Count:       1,
+				RandomPlace: true,
+			},
+		}
+
+		// Balance the guardian for the party if we have a balancer
+		if s.balancer != nil {
+			var err error
+			guardianMonsterConfigs, err = s.balancer.AdjustMonsterSelection(guardianMonsterConfigs, party, difficulty)
+			if err != nil {
+				return nil, fmt.Errorf("failed to balance guardian monster: %w", err)
+			}
+		}
+	}
+
+	// Get items from different categories
+	allItems := []*entities.Item{}
+	itemsPerCategory := itemCount / len(itemCategories)
+	if itemsPerCategory < 1 {
+		itemsPerCategory = 1
+	}
+
+	for _, category := range itemCategories {
+		items, err := s.itemRepo.GetRandomItemsByCategory(category, itemsPerCategory)
+		if err != nil {
+			// If we can't find items in a category, just continue
+			continue
+		}
+		allItems = append(allItems, items...)
+	}
+
+	// If we didn't get enough items from categories, fill with random items
+	if len(allItems) < itemCount {
+		remainingCount := itemCount - len(allItems)
+		randomItems, err := s.itemRepo.GetRandomItems(remainingCount)
+		if err == nil {
+			allItems = append(allItems, randomItems...)
+		}
+	}
+
+	// Limit to the requested item count in case we got too many
+	if len(allItems) > itemCount {
+		allItems = allItems[:itemCount]
+	}
+
+	// Convert items to item configs
+	itemConfigs := make([]ItemConfig, len(allItems))
+	for i, item := range allItems {
+		itemConfigs[i] = ItemConfig{
+			Key:         item.Key,
+			Count:       1,
+			RandomPlace: true,
+		}
+	}
+
+	// Generate the room
+	room, err := s.GenerateRoom(roomConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the room type to treasure
+	room.RoomType = &entities.TreasureRoomType{}
+
+	// Check if there's enough space for items, guardians, and party members
+	availableSpace := room.Width * room.Height
+
+	// Account for guardian monsters
+	monsterCount := 0
+	for _, config := range guardianMonsterConfigs {
+		monsterCount += config.Count
+	}
+
+	// Account for party members
+	partyMemberCount := len(party.Members)
+
+	availableSpace -= (monsterCount + partyMemberCount)
+
+	if len(itemConfigs) > availableSpace {
+		return nil, fmt.Errorf("not enough space in room for %d items, %d monsters, and %d party members (available space: %d)",
+			len(itemConfigs), monsterCount, partyMemberCount, availableSpace)
+	}
+
+	// Add items to the room
+	err = s.AddItemsToRoom(room, itemConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add guardian monsters if specified
+	if len(guardianMonsterConfigs) > 0 {
+		err = s.AddMonstersToRoom(room, guardianMonsterConfigs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Add party members to the room
+	// Create player configs from party members
+	playerConfigs := make([]PlayerConfig, len(party.Members))
+	for i, member := range party.Members {
+		playerConfigs[i] = PlayerConfig{
+			Name:        member.Name,
+			Level:       member.Level,
+			RandomPlace: true,
+		}
+	}
+
+	err = s.AddPlayersToRoom(room, playerConfigs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add a note to the room description about clearing after treasure collection
+	if room.Description == "" {
+		room.Description = "A treasure room with valuable items. Remember to clear the room after collecting all treasure."
+	} else {
+		room.Description += " Remember to clear the room after collecting all treasure."
+	}
+
+	return room, nil
+}
+
 // BalanceMonsterConfigs adjusts monster configurations based on party composition and desired difficulty
 func (s *RoomService) BalanceMonsterConfigs(monsterConfigs []MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) ([]MonsterConfig, error) {
 	return s.balancer.AdjustMonsterSelection(monsterConfigs, party, difficulty)
@@ -248,79 +665,126 @@ func (s *RoomService) DetermineRoomDifficulty(room *entities.Room, party entitie
 	return s.balancer.DetermineEncounterDifficulty(room.Monsters, party)
 }
 
-// CleanupRoom removes monsters from a room and returns XP gained
-// If monsterIDs is empty, all monsters are removed
-// Returns the total XP gained, a slice of monster IDs that weren't removed, and any error encountered
-func (s *RoomService) CleanupRoom(room *entities.Room, monsterIDs []string) (int, []string, error) {
+// CleanupRoom removes entities from a room and returns XP gained for monsters
+// If entityIDs is empty for a type, all entities of that type are removed
+// Returns the total XP gained, a slice of entity IDs that weren't removed, and any error encountered
+func (s *RoomService) CleanupRoom(room *entities.Room, entityType entities.CellType, entityIDs []string) (int, []string, error) {
 	if room == nil {
 		return 0, nil, fmt.Errorf("room cannot be nil")
 	}
 
-	// Track total XP gained and monsters not removed
+	// Track total XP gained and entities not removed
 	totalXP := 0
 	notRemoved := []string{}
 
-	// If monsterIDs is empty, remove all monsters
-	if len(monsterIDs) == 0 {
-		// Process all monsters to calculate XP
-		for _, monster := range room.Monsters {
-			// Get XP from the repository
-			xp, err := s.monsterRepo.GetMonsterXP(monster.Key)
-			if err != nil {
-				// Log the error but continue
-				fmt.Printf("Warning: failed to get XP for monster %s: %v\n", monster.Key, err)
-			} else {
-				totalXP += xp
-			}
-		}
-
-		// Clear the grid of monsters
-		if room.Grid != nil {
-			for y := 0; y < room.Height; y++ {
-				for x := 0; x < room.Width; x++ {
-					if room.Grid[y][x].Type == entities.CellMonster {
-						room.Grid[y][x] = entities.Cell{Type: entities.CellTypeEmpty}
-					}
-				}
-			}
-		}
-
-		// Clear the monsters slice
-		room.Monsters = make([]entities.Monster, 0)
-	} else {
-		// Remove specific monsters by ID
-		for _, monsterID := range monsterIDs {
-			// Find the monster to get its key
-			var monsterKey string
+	switch entityType {
+	case entities.CellMonster:
+		// If entityIDs is empty, remove all monsters
+		if len(entityIDs) == 0 {
+			// First calculate XP for all monsters
 			for _, monster := range room.Monsters {
-				if monster.ID == monsterID {
-					monsterKey = monster.Key
-					break
-				}
-			}
-
-			if monsterKey != "" {
 				// Get XP from the repository
-				xp, err := s.monsterRepo.GetMonsterXP(monsterKey)
+				xp, err := s.monsterRepo.GetMonsterXP(monster.Key)
 				if err != nil {
 					// Log the error but continue
-					fmt.Printf("Warning: failed to get XP for monster %s: %v\n", monsterKey, err)
+					fmt.Printf("Warning: failed to get XP for monster %s: %v\n", monster.Key, err)
 				} else {
 					totalXP += xp
 				}
 			}
 
-			// Use the existing RemoveMonster function to handle removal
-			removed, err := entities.RemoveMonster(room, monsterID)
-			if err != nil {
-				return totalXP, notRemoved, fmt.Errorf("error removing monster %s: %w", monsterID, err)
+			// Create a copy of monster IDs to avoid modification during iteration
+			monsterIDs := make([]string, len(room.Monsters))
+			for i, monster := range room.Monsters {
+				monsterIDs[i] = monster.ID
 			}
 
-			// If monster wasn't found, add to notRemoved slice
-			if !removed {
-				notRemoved = append(notRemoved, monsterID)
+			// Remove each monster by ID
+			for _, id := range monsterIDs {
+				if !entities.RemoveEntity(room, id, entities.CellMonster) {
+					notRemoved = append(notRemoved, id)
+				}
+			}
+		} else {
+			// Remove specific monsters by ID
+			for _, monsterID := range entityIDs {
+				// Find the monster to get its key
+				var monsterKey string
+				for _, monster := range room.Monsters {
+					if monster.ID == monsterID {
+						monsterKey = monster.Key
+						break
+					}
+				}
+
+				if monsterKey != "" {
+					// Get XP from the repository
+					xp, err := s.monsterRepo.GetMonsterXP(monsterKey)
+					if err != nil {
+						// Log the error but continue
+						fmt.Printf("Warning: failed to get XP for monster %s: %v\n", monsterKey, err)
+					} else {
+						totalXP += xp
+					}
+				}
+
+				// Use RemoveEntity to handle removal
+				if !entities.RemoveEntity(room, monsterID, entities.CellMonster) {
+					notRemoved = append(notRemoved, monsterID)
+				}
 			}
 		}
+
+	case entities.CellItem:
+		// If entityIDs is empty, remove all items
+		if len(entityIDs) == 0 {
+			// Create a copy of item IDs to avoid modification during iteration
+			itemIDs := make([]string, len(room.Items))
+			for i, item := range room.Items {
+				itemIDs[i] = item.ID
+			}
+
+			// Remove each item by ID
+			for _, id := range itemIDs {
+				if !entities.RemoveEntity(room, id, entities.CellItem) {
+					notRemoved = append(notRemoved, id)
+				}
+			}
+		} else {
+			// Remove specific items by ID
+			for _, itemID := range entityIDs {
+				if !entities.RemoveEntity(room, itemID, entities.CellItem) {
+					notRemoved = append(notRemoved, itemID)
+				}
+			}
+		}
+
+	case entities.CellPlayer:
+		// If entityIDs is empty, remove all players
+		if len(entityIDs) == 0 {
+			// Create a copy of player IDs to avoid modification during iteration
+			playerIDs := make([]string, len(room.Players))
+			for i, player := range room.Players {
+				playerIDs[i] = player.ID
+			}
+
+			// Remove each player by ID
+			for _, id := range playerIDs {
+				if !entities.RemoveEntity(room, id, entities.CellPlayer) {
+					notRemoved = append(notRemoved, id)
+				}
+			}
+		} else {
+			// Remove specific players by ID
+			for _, playerID := range entityIDs {
+				if !entities.RemoveEntity(room, playerID, entities.CellPlayer) {
+					notRemoved = append(notRemoved, playerID)
+				}
+			}
+		}
+
+	default:
+		return 0, nil, fmt.Errorf("unsupported entity type: %v", entityType)
 	}
 
 	return totalXP, notRemoved, nil

@@ -7,6 +7,8 @@ A Go library for generating dynamic rooms for Dungeons & Dragons 5th Edition adv
 - Generate room layouts with configurable dimensions and light levels
 - Place monsters with random or specific positioning
 - Place players with random or specific positioning
+- Place items with random or specific positioning
+- Generate treasure rooms with scaled loot based on party size and difficulty
 - Automatic grid initialization for spatial tracking
 - Flexible service layer for easy integration with applications
 - Support for encounter balancing based on party composition
@@ -134,11 +136,48 @@ for i, monster := range room.Monsters {
 }
 ```
 
-### Generating a Room with Both Players and Monsters
+### Generating a Treasure Room
 
 ```go
-// Generate a room and add both players and monsters in one step
-room, err := roomService.PopulateRoomWithMonstersAndPlayers(roomConfig, monsterConfigs, playerConfigs)
+import (
+    "github.com/fadedpez/dnd5e-roomgen/internal/entities"
+    "github.com/fadedpez/dnd5e-roomgen/internal/services"
+)
+
+// Create a room service
+roomService, err := services.NewRoomService()
+if err != nil {
+    // Handle error
+}
+
+// Configure a room
+roomConfig := services.RoomConfig{
+    Width:       15,
+    Height:      10,
+    LightLevel:  entities.LightLevelBright,
+    Description: "A glittering treasure chamber",
+    UseGrid:     true,
+}
+
+// Create a party
+party := entities.Party{
+    Members: []entities.PartyMember{
+        {Name: "Aragorn", Level: 5},
+        {Name: "Legolas", Level: 4},
+        {Name: "Gimli", Level: 5},
+        {Name: "Gandalf", Level: 7},
+    },
+}
+
+// Generate a treasure room with optional guardian monsters
+includeGuardian := true
+difficulty := entities.EncounterDifficultyMedium
+
+room, err := roomService.PopulateRandomTreasureRoomWithParty(
+    roomConfig, 
+    party, 
+    includeGuardian, 
+    difficulty)
 if err != nil {
     // Handle error
 }
@@ -146,16 +185,51 @@ if err != nil {
 // Access room properties
 fmt.Printf("Room: %dx%d, %s\n", room.Width, room.Height, room.Description)
 
-// Access player properties
-for i, player := range room.Players {
-    fmt.Printf("Player %d: %s (Level %d) at position (%d,%d)\n",
-        i+1, player.Name, player.Level, player.Position.X, player.Position.Y)
+// Access item properties
+fmt.Printf("Found %d items:\n", len(room.Items))
+for i, item := range room.Items {
+    fmt.Printf("Item %d: %s at position (%d,%d)\n",
+        i+1, item.Name, item.Position.X, item.Position.Y)
 }
 
-// Access monster properties
-for i, monster := range room.Monsters {
-    fmt.Printf("Monster %d: %s (CR %.2f) at position (%d,%d)\n",
-        i+1, monster.Name, monster.CR, monster.Position.X, monster.Position.Y)
+// If guardians were included, access monster properties
+if includeGuardian {
+    fmt.Printf("Guardian monsters (%d):\n", len(room.Monsters))
+    for i, monster := range room.Monsters {
+        fmt.Printf("Monster %d: %s (CR %.2f) at position (%d,%d)\n",
+            i+1, monster.Name, monster.CR, monster.Position.X, monster.Position.Y)
+    }
+}
+```
+
+### Managing Entities in a Room
+
+```go
+// Remove specific monsters from a room (e.g., after defeating them)
+monsterIDs := []string{"monster-uuid-1", "monster-uuid-2"}
+xpGained, notRemoved, err := roomService.CleanupRoom(room, entities.CellMonster, monsterIDs)
+if err != nil {
+    // Handle error
+}
+fmt.Printf("XP gained: %d\n", xpGained)
+if len(notRemoved) > 0 {
+    fmt.Printf("Some monsters could not be removed: %v\n", notRemoved)
+}
+
+// Remove all items from a room (e.g., after collecting all treasure)
+_, notRemoved, err = roomService.CleanupRoom(room, entities.CellItem, []string{})
+if err != nil {
+    // Handle error
+}
+if len(notRemoved) > 0 {
+    fmt.Printf("Some items could not be removed: %v\n", notRemoved)
+}
+
+// Remove specific players from a room
+playerIDs := []string{"player-uuid-1"}
+_, notRemoved, err = roomService.CleanupRoom(room, entities.CellPlayer, playerIDs)
+if err != nil {
+    // Handle error
 }
 ```
 
@@ -330,15 +404,6 @@ party := entities.Party{
         {Name: "Gimli", Level: 5},
         {Name: "Gandalf", Level: 7},
     },
-}
-
-// Configure a room
-roomConfig := services.RoomConfig{
-    Width:       20,
-    Height:      15,
-    LightLevel:  entities.LightLevelDim,
-    Description: "A dimly lit dungeon chamber",
-    UseGrid:     true,
 }
 
 // Define monster configurations

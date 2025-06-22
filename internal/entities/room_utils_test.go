@@ -9,14 +9,21 @@ import (
 
 // createTestRoom creates a standard room with a grid for testing
 func createTestRoom() *Room {
-	room := NewRoom(5, 5, LightLevelBright)
-	InitializeGrid(room)
-	return room
+	return NewRoom(5, 5, LightLevelBright)
 }
 
 // createTestRoomNoGrid creates a standard room without a grid for testing
 func createTestRoomNoGrid() *Room {
-	return NewRoom(5, 5, LightLevelBright)
+	room := &Room{
+		Width:      5,
+		Height:     5,
+		LightLevel: LightLevelBright,
+		RoomType:   DefaultRoomType(),
+		Monsters:   make([]Monster, 0),
+		Players:    make([]Player, 0),
+		Items:      make([]Item, 0),
+	}
+	return room
 }
 
 // createTestMonster creates a monster with the given ID and position
@@ -41,14 +48,29 @@ func createTestPlayer(id string, level int, x, y int) Player {
 }
 
 func TestNewRoom(t *testing.T) {
-	room := createTestRoom()
+	room := NewRoom(5, 5, LightLevelBright)
 
 	assert.NotNil(t, room)
 	assert.Equal(t, 5, room.Width)
 	assert.Equal(t, 5, room.Height)
 	assert.Equal(t, LightLevelBright, room.LightLevel)
 	assert.Empty(t, room.Monsters)
+	assert.Empty(t, room.Players)
+	assert.Empty(t, room.Items)
+	assert.NotNil(t, room.RoomType)
+	assert.Equal(t, "combat", room.RoomType.Type())
 
+	// Verify grid is initialized
+	assert.NotNil(t, room.Grid)
+	assert.Equal(t, 5, len(room.Grid))
+	assert.Equal(t, 5, len(room.Grid[0]))
+
+	// Check that all cells are initialized as empty
+	for i := range room.Grid {
+		for j := range room.Grid[i] {
+			assert.Equal(t, CellTypeEmpty, room.Grid[i][j].Type)
+		}
+	}
 }
 
 func TestInitializeGrid(t *testing.T) {
