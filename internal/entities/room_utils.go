@@ -3,7 +3,6 @@ package entities
 import (
 	"fmt"
 	"math"
-	"math/rand"
 )
 
 // NewRoom creates a new room with the specified dimensions
@@ -14,7 +13,9 @@ func NewRoom(width, height int, lightLevel LightLevel) *Room {
 		LightLevel: lightLevel,
 		Monsters:   make([]Monster, 0),
 		Players:    make([]Player, 0),
+		Items:      make([]Item, 0),
 	}
+
 	return room
 }
 
@@ -37,77 +38,10 @@ func InitializeGrid(room *Room) {
 // AddMonster adds a monster to the room and places it on the grid if available
 func AddMonster(room *Room, monster Monster) error {
 	if room == nil {
-		return fmt.Errorf("cannot add monster to nil room")
+		return ErrNilRoom
 	}
 
-	if room.Grid != nil {
-		pos := monster.Position
-
-		// Check if position is valid
-		if pos.X < 0 || pos.X >= room.Width || pos.Y < 0 || pos.Y >= room.Height {
-			return fmt.Errorf("monster position (%d, %d) is outside room bounds (%d, %d)",
-				pos.X, pos.Y, room.Width, room.Height)
-		}
-
-		// Check if cell is already occupied
-		if room.Grid[pos.Y][pos.X].Type != CellTypeEmpty {
-			return fmt.Errorf("cell (%d, %d) is already occupied", pos.X, pos.Y)
-		}
-
-		// Place monster on grid
-		room.Grid[pos.Y][pos.X] = Cell{
-			Type:     CellMonster,
-			EntityID: monster.ID,
-		}
-	}
-
-	// Add to monsters slice
-	room.Monsters = append(room.Monsters, monster)
-
-	return nil
-}
-
-// FindEmptyPosition finds a random empty position in the room
-// Returns an error if no empty positions are available or if the room has no grid
-// Only to be used when the grid is initialized, not used if consumer elects to not use the grid feature
-func FindEmptyPosition(room *Room) (Position, error) {
-	if room == nil || room.Grid == nil {
-		return Position{}, fmt.Errorf("cannot find empty position in nil room or room with no grid")
-
-	}
-
-	// Count empty cells
-	emptyCells := 0
-	for i := range room.Grid {
-		for j := range room.Grid[i] {
-			if room.Grid[i][j].Type == CellTypeEmpty {
-				emptyCells++
-			}
-		}
-	}
-
-	// If no empty cells, return error
-	if emptyCells == 0 {
-		return Position{}, fmt.Errorf("no empty positions available")
-	}
-
-	// Pick a random empty cell
-	targetCell := rand.Intn(emptyCells)
-	currentCell := 0
-
-	for i := range room.Grid {
-		for j := range room.Grid[i] {
-			if room.Grid[i][j].Type == CellTypeEmpty {
-				if currentCell == targetCell {
-					return Position{X: j, Y: i}, nil
-				}
-				currentCell++
-			}
-		}
-	}
-
-	// This should never happen if our counting logic is correct
-	return Position{}, fmt.Errorf("no empty positions available. counted %d empty cells, but found none", emptyCells)
+	return PlaceEntity(room, &monster)
 }
 
 // RemoveMonster removes a monster from the room by its ID
@@ -115,44 +49,12 @@ func FindEmptyPosition(room *Room) (Position, error) {
 // If the room has a grid, the cell where the monster was is cleared
 func RemoveMonster(room *Room, monsterID string) (bool, error) {
 	if room == nil {
-		return false, fmt.Errorf("cannot remove monster from nil room")
+		return false, ErrNilRoom
 	}
 
-	// Find the monster in the room's monster slice
-	monsterIndex := -1
-	var monsterToRemove Monster
-
-	for i, monster := range room.Monsters {
-		if monster.ID == monsterID {
-			monsterIndex = i
-			monsterToRemove = monster
-			break
-		}
-
-	}
-
-	// If monster not found, return false
-	if monsterIndex == -1 {
-		return false, nil
-	}
-
-	// If room has a grid, clear the cell where the monster was
-	if room.Grid != nil {
-		pos := monsterToRemove.Position
-
-		// Check if position is valid (should always be valid if monster was added correctly)
-		if pos.X >= 0 && pos.X < room.Width && pos.Y >= 0 && pos.Y < room.Height {
-			// Only clear the cell if it contains this monster
-			if room.Grid[pos.Y][pos.X].Type == CellMonster && room.Grid[pos.Y][pos.X].EntityID == monsterID {
-				room.Grid[pos.Y][pos.X] = Cell{Type: CellTypeEmpty}
-			}
-		}
-	}
-
-	// Remove the monster from the room's monster slice
-	room.Monsters = append(room.Monsters[:monsterIndex], room.Monsters[monsterIndex+1:]...)
-
-	return true, nil
+	// Use the generic RemoveEntity function but adapt the return value
+	removed := RemoveEntity(room, monsterID, CellMonster)
+	return removed, nil
 }
 
 // MoveEntity moves an entity (like a player or monster) from its current position to a new position
@@ -227,37 +129,13 @@ func CalculateDistance(pos1, pos2 Position) float64 {
 	return math.Max(math.Abs(dx), math.Abs(dy))
 }
 
-// AddPlayer adds a player to the room and places them on the grid if available
+// AddPlayer adds a player to the room and places it on the grid if available
 func AddPlayer(room *Room, player Player) error {
 	if room == nil {
-		return fmt.Errorf("cannot add player to nil room")
+		return ErrNilRoom
 	}
 
-	if room.Grid != nil {
-		pos := player.Position
-
-		// Check if position is valid
-		if pos.X < 0 || pos.X >= room.Width || pos.Y < 0 || pos.Y >= room.Height {
-			return fmt.Errorf("player position (%d, %d) is outside room bounds (%d, %d)",
-				pos.X, pos.Y, room.Width, room.Height)
-		}
-
-		// Check if cell is already occupied
-		if room.Grid[pos.Y][pos.X].Type != CellTypeEmpty {
-			return fmt.Errorf("cell (%d, %d) is already occupied", pos.X, pos.Y)
-		}
-
-		// Place player on grid
-		room.Grid[pos.Y][pos.X] = Cell{
-			Type:     CellPlayer,
-			EntityID: player.ID,
-		}
-	}
-
-	// Add to players slice
-	room.Players = append(room.Players, player)
-
-	return nil
+	return PlaceEntity(room, &player)
 }
 
 // RemovePlayer removes a player from the room by their ID
@@ -265,41 +143,10 @@ func AddPlayer(room *Room, player Player) error {
 // If the room has a grid, the cell where the player was is cleared
 func RemovePlayer(room *Room, playerID string) (bool, error) {
 	if room == nil {
-		return false, fmt.Errorf("cannot remove player from nil room")
+		return false, ErrNilRoom
 	}
 
-	// Find the player in the room's player slice
-	playerIndex := -1
-	var playerToRemove Player
-
-	for i, player := range room.Players {
-		if player.ID == playerID {
-			playerIndex = i
-			playerToRemove = player
-			break
-		}
-	}
-
-	// If player not found, return false
-	if playerIndex == -1 {
-		return false, nil
-	}
-
-	// If room has a grid, clear the cell
-	if room.Grid != nil {
-		pos := playerToRemove.Position
-
-		// Check if position is valid
-		if pos.X >= 0 && pos.X < room.Width && pos.Y >= 0 && pos.Y < room.Height {
-			// Only clear the cell if it contains this player
-			if room.Grid[pos.Y][pos.X].Type == CellPlayer && room.Grid[pos.Y][pos.X].EntityID == playerID {
-				room.Grid[pos.Y][pos.X] = Cell{Type: CellTypeEmpty}
-			}
-		}
-	}
-
-	// Remove the player from the room's player slice
-	room.Players = append(room.Players[:playerIndex], room.Players[playerIndex+1:]...)
-
-	return true, nil
+	// Use the generic RemoveEntity function but adapt the return value
+	removed := RemoveEntity(room, playerID, CellPlayer)
+	return removed, nil
 }

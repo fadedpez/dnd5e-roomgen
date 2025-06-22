@@ -404,7 +404,7 @@ func TestCleanupRoom(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			room := tc.setupRoom()
 
-			xp, notRemoved, err := service.CleanupRoom(room, tc.monsterIDs)
+			xp, notRemoved, err := service.CleanupRoom(room, entities.CellMonster, tc.monsterIDs)
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedXP, xp, "Expected XP doesn't match")
@@ -987,4 +987,612 @@ func TestDetermineRoomDifficulty(t *testing.T) {
 			}
 		})
 	}
+}
+
+// MockItemRepository is a mock implementation of the ItemRepository interface for testing
+type MockItemRepository struct {
+	items map[string]*entities.Item
+}
+
+func (m *MockItemRepository) GetItemByKey(key string) (*entities.Item, error) {
+	item, exists := m.items[key]
+	if !exists {
+		return nil, fmt.Errorf("item with key %s not found", key)
+	}
+	return item, nil
+}
+
+func (m *MockItemRepository) GetRandomItems(count int) ([]*entities.Item, error) {
+	if len(m.items) == 0 {
+		return nil, fmt.Errorf("no items available")
+	}
+
+	result := make([]*entities.Item, 0, count)
+
+	// Convert map to slice for easier iteration
+	itemSlice := make([]*entities.Item, 0, len(m.items))
+	for _, item := range m.items {
+		itemSlice = append(itemSlice, item)
+	}
+
+	// Duplicate items as needed to meet the requested count
+	for i := 0; i < count; i++ {
+		// Use modulo to cycle through available items
+		itemIndex := i % len(itemSlice)
+		// Create a copy of the item with a unique ID
+		itemCopy := *itemSlice[itemIndex]
+		itemCopy.ID = fmt.Sprintf("%s_%d", itemCopy.ID, i)
+		result = append(result, &itemCopy)
+	}
+
+	return result, nil
+}
+
+func (m *MockItemRepository) GetRandomItemsByCategory(category string, count int) ([]*entities.Item, error) {
+	if len(m.items) == 0 {
+		return nil, fmt.Errorf("no items available")
+	}
+
+	// Find items matching the category
+	matchingItems := make([]*entities.Item, 0)
+	for _, item := range m.items {
+		if item.Category == category {
+			matchingItems = append(matchingItems, item)
+		}
+	}
+
+	if len(matchingItems) == 0 {
+		return nil, fmt.Errorf("no items found for category %s", category)
+	}
+
+	result := make([]*entities.Item, 0, count)
+
+	// Duplicate items as needed to meet the requested count
+	for i := 0; i < count; i++ {
+		// Use modulo to cycle through available items
+		itemIndex := i % len(matchingItems)
+		// Create a copy of the item with a unique ID
+		itemCopy := *matchingItems[itemIndex]
+		itemCopy.ID = fmt.Sprintf("%s_%d", itemCopy.ID, i)
+		result = append(result, &itemCopy)
+	}
+
+	return result, nil
+}
+
+func TestPopulateTreasureRoom(t *testing.T) {
+	// Create mock item repository with test items
+	mockItemRepo := &MockItemRepository{
+		items: map[string]*entities.Item{
+			"item_sword": {
+				ID:         "1",
+				Key:        "item_sword",
+				Name:       "Longsword",
+				Type:       "weapon",
+				Category:   "martial-weapons",
+				Value:      15,
+				ValueUnit:  "gp",
+				Weight:     3,
+				DamageDice: "1d8",
+				DamageType: "slashing",
+			},
+			"item_armor": {
+				ID:                  "2",
+				Key:                 "item_armor",
+				Name:                "Chain Mail",
+				Type:                "armor",
+				Category:            "heavy-armor",
+				Value:               75,
+				ValueUnit:           "gp",
+				Weight:              55,
+				ArmorClass:          16,
+				StealthDisadvantage: true,
+			},
+			"item_potion": {
+				ID:        "3",
+				Key:       "item_potion",
+				Name:      "Potion of Healing",
+				Type:      "potion",
+				Category:  "potion",
+				Value:     50,
+				ValueUnit: "gp",
+				Weight:    1,
+			},
+		},
+	}
+
+	// Create a room service with the mock repository
+	roomService := &RoomService{
+		itemRepo: mockItemRepo,
+	}
+
+	// Test cases
+	testCases := []struct {
+		name                   string
+		roomConfig             RoomConfig
+		itemCount              int
+		guardianMonsterConfigs []MonsterConfig
+		expectError            bool
+		checkFunc              func(t *testing.T, room *entities.Room)
+	}{
+		{
+			name:        "Basic treasure room",
+			roomConfig:  createTestRoomConfig(10, 10, entities.LightLevelBright, true),
+			itemCount:   3,
+			expectError: false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Check room type
+				assert.NotNil(t, room.RoomType)
+				assert.Equal(t, "treasure", room.RoomType.Type())
+
+				// Check items were added
+				assert.Len(t, room.Items, 3)
+
+				// Verify grid has items placed
+				if room.Grid != nil {
+					itemCellCount := 0
+					for y := 0; y < room.Height; y++ {
+						for x := 0; x < room.Width; x++ {
+							if room.Grid[y][x].Type == entities.CellItem {
+								itemCellCount++
+							}
+						}
+					}
+					assert.Equal(t, 3, itemCellCount)
+				}
+			},
+		},
+		{
+			name:       "Treasure room with guardian",
+			roomConfig: createTestRoomConfig(15, 15, entities.LightLevelDim, true),
+			itemCount:  2,
+			guardianMonsterConfigs: []MonsterConfig{
+				createTestMonsterConfig("Dragon", 5.0, 1, true, nil),
+			},
+			expectError: false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Check room type
+				assert.NotNil(t, room.RoomType)
+				assert.Equal(t, "treasure", room.RoomType.Type())
+
+				// Check items were added
+				assert.Len(t, room.Items, 2)
+
+				// Check guardian was added
+				assert.Len(t, room.Monsters, 1)
+				assert.Equal(t, "Dragon", room.Monsters[0].Name)
+			},
+		},
+		{
+			name:        "Too many items for room size",
+			roomConfig:  createTestRoomConfig(2, 2, entities.LightLevelBright, true),
+			itemCount:   10, // Too many for a 2x2 room
+			expectError: true,
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			room, err := roomService.PopulateTreasureRoom(tc.roomConfig, tc.itemCount, tc.guardianMonsterConfigs)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tc.checkFunc != nil {
+					tc.checkFunc(t, room)
+				}
+			}
+		})
+	}
+}
+
+func TestPopulateRandomTreasureRoomWithParty(t *testing.T) {
+	// Create mock item repository with test items
+	mockItemRepo := &MockItemRepository{
+		items: map[string]*entities.Item{
+			"item_sword": {
+				ID:         "1",
+				Key:        "item_sword",
+				Name:       "Longsword",
+				Type:       "weapon",
+				Category:   "martial-weapons",
+				Value:      15,
+				ValueUnit:  "gp",
+				Weight:     3,
+				DamageDice: "1d8",
+				DamageType: "slashing",
+			},
+			"item_armor": {
+				ID:                  "2",
+				Key:                 "item_armor",
+				Name:                "Chain Mail",
+				Type:                "armor",
+				Category:            "heavy-armor",
+				Value:               75,
+				ValueUnit:           "gp",
+				Weight:              55,
+				ArmorClass:          16,
+				StealthDisadvantage: true,
+			},
+			"item_potion": {
+				ID:        "3",
+				Key:       "item_potion",
+				Name:      "Potion of Healing",
+				Type:      "potion",
+				Category:  "potion",
+				Value:     50,
+				ValueUnit: "gp",
+				Weight:    1,
+			},
+		},
+	}
+
+	// Create a mock balancer for monster balancing
+	mockBalancer := &MockBalancer{
+		adjustFunc: func(configs []MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) ([]MonsterConfig, error) {
+			// Just return the same configs for testing
+			return configs, nil
+		},
+	}
+
+	// Create a room service with the mock repositories
+	roomService := &RoomService{
+		itemRepo: mockItemRepo,
+		balancer: mockBalancer,
+	}
+
+	// Test cases
+	testCases := []struct {
+		name            string
+		roomConfig      RoomConfig
+		party           entities.Party
+		includeGuardian bool
+		difficulty      entities.EncounterDifficulty
+		expectError     bool
+		checkFunc       func(t *testing.T, room *entities.Room)
+	}{
+		{
+			name:       "Small party, easy difficulty, no guardian",
+			roomConfig: createTestRoomConfig(10, 10, entities.LightLevelBright, true),
+			party: entities.Party{
+				Members: []entities.PartyMember{
+					{Name: "Player1", Level: 1},
+					{Name: "Player2", Level: 2},
+				},
+			},
+			includeGuardian: false,
+			difficulty:      entities.EncounterDifficultyEasy,
+			expectError:     false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Check room type
+				assert.NotNil(t, room.RoomType)
+				assert.Equal(t, "treasure", room.RoomType.Type())
+
+				// Check items were added (for small party, low level, easy difficulty)
+				// Expected: 2 players + 1 item per 3 levels (avg 1.5 level) = ~2.5 items
+				// With 0.75 multiplier for easy difficulty = ~1.9 items, rounded to at least 1
+				assert.GreaterOrEqual(t, len(room.Items), 1)
+
+				// Check party members were added
+				assert.Len(t, room.Players, 2)
+
+				// Check no monsters (guardian disabled)
+				assert.Empty(t, room.Monsters)
+
+				// Check description contains reminder about clearing
+				assert.Contains(t, room.Description, "clear the room after collecting all treasure")
+			},
+		},
+		{
+			name:       "Medium party, medium difficulty, with guardian",
+			roomConfig: createTestRoomConfig(15, 15, entities.LightLevelDim, true),
+			party: entities.Party{
+				Members: []entities.PartyMember{
+					{Name: "Player1", Level: 3},
+					{Name: "Player2", Level: 4},
+					{Name: "Player3", Level: 5},
+					{Name: "Player4", Level: 4},
+				},
+			},
+			includeGuardian: true,
+			difficulty:      entities.EncounterDifficultyMedium,
+			expectError:     false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Check room type
+				assert.NotNil(t, room.RoomType)
+				assert.Equal(t, "treasure", room.RoomType.Type())
+
+				// Check items were added
+				// Expected: 4 players + 1 item per 3 levels (avg 4 level) = ~5.3 items
+				// With 1.0 multiplier for medium difficulty = ~5.3 items
+				assert.GreaterOrEqual(t, len(room.Items), 5)
+
+				// Check party members were added
+				assert.Len(t, room.Players, 4)
+
+				// Check guardian was added
+				assert.NotEmpty(t, room.Monsters)
+
+				// Check description contains reminder about clearing
+				assert.Contains(t, room.Description, "clear the room after collecting all treasure")
+			},
+		},
+		{
+			name:       "Large party, hard difficulty, with guardian",
+			roomConfig: createTestRoomConfig(20, 20, entities.LightLevelDark, true),
+			party: entities.Party{
+				Members: []entities.PartyMember{
+					{Name: "Player1", Level: 8},
+					{Name: "Player2", Level: 9},
+					{Name: "Player3", Level: 10},
+					{Name: "Player4", Level: 9},
+					{Name: "Player5", Level: 8},
+					{Name: "Player6", Level: 10},
+				},
+			},
+			includeGuardian: true,
+			difficulty:      entities.EncounterDifficultyHard,
+			expectError:     false,
+			checkFunc: func(t *testing.T, room *entities.Room) {
+				// Check room type
+				assert.NotNil(t, room.RoomType)
+				assert.Equal(t, "treasure", room.RoomType.Type())
+
+				// Check items were added
+				// Expected: 6 players + 1 item per 3 levels (avg 9 level) = ~9 items
+				// With 1.25 multiplier for hard difficulty = ~11.25 items
+				assert.GreaterOrEqual(t, len(room.Items), 11)
+
+				// Check party members were added
+				assert.Len(t, room.Players, 6)
+
+				// Check guardian was added
+				assert.NotEmpty(t, room.Monsters)
+
+				// Check description contains reminder about clearing
+				assert.Contains(t, room.Description, "clear the room after collecting all treasure")
+			},
+		},
+		{
+			name:       "Too small room for party and items",
+			roomConfig: createTestRoomConfig(2, 2, entities.LightLevelBright, true),
+			party: entities.Party{
+				Members: []entities.PartyMember{
+					{Name: "Player1", Level: 10},
+					{Name: "Player2", Level: 10},
+				},
+			},
+			includeGuardian: true,
+			difficulty:      entities.EncounterDifficultyDeadly,
+			expectError:     true, // Room is too small for party + items + guardian
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			room, err := roomService.PopulateRandomTreasureRoomWithParty(tc.roomConfig, tc.party, tc.includeGuardian, tc.difficulty)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tc.checkFunc != nil {
+					tc.checkFunc(t, room)
+				}
+			}
+		})
+	}
+}
+
+// MockBalancer is a mock implementation of the monster balancer
+type MockBalancer struct {
+	adjustFunc func(configs []MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) ([]MonsterConfig, error)
+}
+
+func (m *MockBalancer) AdjustMonsterSelection(configs []MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) ([]MonsterConfig, error) {
+	if m.adjustFunc != nil {
+		return m.adjustFunc(configs, party, difficulty)
+	}
+	return configs, nil
+}
+
+func (m *MockBalancer) DetermineEncounterDifficulty(monsters []entities.Monster, party entities.Party) (entities.EncounterDifficulty, error) {
+	// Simple mock implementation - just return medium difficulty
+	return entities.EncounterDifficultyMedium, nil
+}
+
+func (m *MockBalancer) CalculateTargetCR(party entities.Party, difficulty entities.EncounterDifficulty) (float64, error) {
+	// Calculate average party level as CR
+	totalLevels := 0
+	for _, member := range party.Members {
+		totalLevels += member.Level
+	}
+	avgLevel := float64(totalLevels) / float64(len(party.Members))
+	return avgLevel, nil
+}
+
+func TestGridlessRoomEntityPlacement(t *testing.T) {
+	// TODO: Update this test to use real monster data from the API instead of mock names
+	// Currently, this test will produce 404 warnings when calculating XP because
+	// it uses fictional monster names that don't exist in the API.
+	// These warnings are expected and don't affect the test functionality.
+
+	service, err := NewRoomService()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a gridless room
+	roomConfig := createTestRoomConfig(10, 10, entities.LightLevelBright, false)
+	room, err := service.GenerateRoom(roomConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify room is gridless
+	assert.Nil(t, room.Grid)
+	assert.Equal(t, 10, room.Width)
+	assert.Equal(t, 10, room.Height)
+
+	// Test monster placement
+	monsterConfigs := []MonsterConfig{
+		createTestMonsterConfig("Goblin", 0.25, 3, true, nil),
+		createTestMonsterConfig("Orc", 0.5, 2, false, &entities.Position{X: 5, Y: 5}),
+	}
+	err = service.AddMonstersToRoom(room, monsterConfigs)
+	assert.NoError(t, err)
+	assert.Len(t, room.Monsters, 5)
+
+	// Verify specific positions for fixed-position monsters
+	orcCount := 0
+	for _, monster := range room.Monsters {
+		if monster.Name == "Orc" {
+			orcCount++
+			assert.Equal(t, 5, monster.Position.X)
+			assert.Equal(t, 5, monster.Position.Y)
+		}
+	}
+	assert.Equal(t, 2, orcCount)
+
+	// Test player placement
+	playerConfigs := []PlayerConfig{
+		createTestPlayerConfig("Aragorn", 5, true, nil),
+		createTestPlayerConfig("Gandalf", 10, false, &entities.Position{X: 3, Y: 3}),
+	}
+	err = service.AddPlayersToRoom(room, playerConfigs)
+	assert.NoError(t, err)
+	assert.Len(t, room.Players, 2)
+
+	// Verify specific position for fixed-position player
+	var foundGandalf bool
+	for _, player := range room.Players {
+		if player.Name == "Gandalf" {
+			foundGandalf = true
+			assert.Equal(t, 3, player.Position.X)
+			assert.Equal(t, 3, player.Position.Y)
+		}
+	}
+	assert.True(t, foundGandalf, "Gandalf should be found in the players list")
+
+	// Test item placement
+	itemConfigs := []ItemConfig{
+		{
+			Key:         "item_potion",
+			Count:       2,
+			RandomPlace: true,
+		},
+		{
+			Key:         "item_scroll",
+			Count:       1,
+			RandomPlace: false,
+			Position:    &entities.Position{X: 7, Y: 7},
+		},
+	}
+
+	// Mock the item repository to return items
+	service.itemRepo = &MockItemRepository{
+		items: map[string]*entities.Item{
+			"item_potion": {
+				Key:  "item_potion",
+				Name: "Potion of Healing",
+				Type: "potion",
+			},
+			"item_scroll": {
+				Key:  "item_scroll",
+				Name: "Scroll of Fireball",
+				Type: "scroll",
+			},
+		},
+	}
+
+	err = service.AddItemsToRoom(room, itemConfigs)
+	assert.NoError(t, err)
+	assert.Len(t, room.Items, 3)
+
+	// Verify specific position for fixed-position item
+	var foundScroll bool
+	for _, item := range room.Items {
+		if item.Name == "Scroll of Fireball" {
+			foundScroll = true
+			assert.Equal(t, 7, item.Position.X)
+			assert.Equal(t, 7, item.Position.Y)
+		}
+	}
+	assert.True(t, foundScroll, "Scroll should be found in the items list")
+
+	// Verify grid is still nil after all entity placements
+	assert.Nil(t, room.Grid)
+
+	// Test entity removal
+	// Remove all monsters
+	_, notRemoved, err := service.CleanupRoom(room, entities.CellMonster, []string{})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Len(t, room.Monsters, 0)
+
+	// Remove one player
+	_, notRemoved, err = service.CleanupRoom(room, entities.CellPlayer, []string{room.Players[0].ID})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Len(t, room.Players, 1)
+
+	// Remove one item
+	_, notRemoved, err = service.CleanupRoom(room, entities.CellItem, []string{room.Items[0].ID})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Len(t, room.Items, 2)
+
+	// Verify grid is still nil after entity removal
+	assert.Nil(t, room.Grid)
+}
+
+func TestGridlessRoomCleanup(t *testing.T) {
+	// Create a mock monster repository for testing
+	mockRepo := &MockMonsterRepository{
+		xpValues: map[string]int{
+			"monster_Goblin": 50,
+			"monster_Orc":    100,
+			"monster_Troll":  450,
+		},
+	}
+
+	// Create a service with the mock repository
+	service := &RoomService{
+		monsterRepo: mockRepo,
+	}
+
+	// Create a gridless room with monsters
+	room := entities.NewRoom(10, 10, entities.LightLevelBright)
+	// Explicitly not initializing grid
+	assert.Nil(t, room.Grid)
+
+	// Add monsters directly using the placement interface
+	goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+	orc := entities.Monster{ID: "2", Key: "monster_Orc", Name: "Orc", Position: entities.Position{X: 3, Y: 3}}
+	troll := entities.Monster{ID: "3", Key: "monster_Troll", Name: "Troll", Position: entities.Position{X: 5, Y: 5}}
+
+	entities.AddMonster(room, goblin)
+	entities.AddMonster(room, orc)
+	entities.AddMonster(room, troll)
+
+	// Verify monsters were added
+	assert.Len(t, room.Monsters, 3)
+	assert.Nil(t, room.Grid)
+
+	// Test removing specific monsters
+	xp, notRemoved, err := service.CleanupRoom(room, entities.CellMonster, []string{"1", "3"})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Equal(t, 500, xp) // 50 + 450
+	assert.Len(t, room.Monsters, 1)
+
+	// Verify the remaining monster is the orc
+	assert.Equal(t, "2", room.Monsters[0].ID)
+	assert.Equal(t, "Orc", room.Monsters[0].Name)
+
+	// Verify grid is still nil after cleanup
+	assert.Nil(t, room.Grid)
 }
