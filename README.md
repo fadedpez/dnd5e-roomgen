@@ -694,8 +694,6 @@ The following improvements are planned for future releases:
 
 4. **Advanced Encounter Balancing** - More sophisticated algorithms for balancing encounters based on party composition and monster synergies.
 
-## Future Improvements
-
 The current implementation is an MVP focused on room generation and monster placement. Future enhancements planned for the library include:
 
 ### Features

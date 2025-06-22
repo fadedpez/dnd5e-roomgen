@@ -71,6 +71,7 @@ type PlayerConfig struct {
 // ItemConfig contains parameters for item generation
 type ItemConfig struct {
 	Key         string             // Item key for lookup
+	Name        string             // Item name for display
 	Count       int                // Number of this item type to add
 	RandomPlace bool               // Whether to place items randomly
 	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
@@ -399,6 +400,7 @@ func (s *RoomService) PopulateTreasureRoom(
 	for i, item := range items {
 		itemConfigs[i] = ItemConfig{
 			Key:         item.Key,
+			Name:        item.Name,
 			Count:       1,
 			RandomPlace: true,
 		}
@@ -550,6 +552,7 @@ func (s *RoomService) PopulateRandomTreasureRoomWithParty(
 	for i, item := range allItems {
 		itemConfigs[i] = ItemConfig{
 			Key:         item.Key,
+			Name:        item.Name,
 			Count:       1,
 			RandomPlace: true,
 		}

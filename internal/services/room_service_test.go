@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/fadedpez/dnd5e-roomgen/internal/entities"
+	"github.com/fadedpez/dnd5e-roomgen/internal/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // createTestRoomConfig creates a standard room configuration for testing
@@ -107,21 +109,40 @@ func TestGenerateRoom(t *testing.T) {
 	}
 }
 
-// createTestMonsterConfig creates a standard monster configuration for testing
-func createTestMonsterConfig(name string, cr float64, count int, randomPlace bool, position *entities.Position) MonsterConfig {
-	config := MonsterConfig{
-		Name:        name,
-		Key:         "monster_" + name,
-		CR:          cr,
+// createTestMonsterConfigWithRealData creates a monster configuration using real monster data from test files
+func createTestMonsterConfigWithRealData(t *testing.T, key string, count int, randomPlace bool, position *entities.Position) MonsterConfig {
+	// Load monster data
+	monsters, err := testutil.LoadAllMonsters()
+	require.NoError(t, err, "Failed to load monster data")
+
+	// Get the specific monster
+	monster, ok := monsters[key]
+	require.True(t, ok, "Monster %s not found in test data", key)
+
+	return MonsterConfig{
+		Name:        monster.Name,
+		Key:         key,
+		CR:          monster.ChallengeRating,
 		Count:       count,
 		RandomPlace: randomPlace,
+		Position:    position,
 	}
+}
 
-	if position != nil {
-		config.Position = position
+// createTestItemConfigWithRealData creates an item configuration using real item data from test files
+func createTestItemConfigWithRealData(t *testing.T, key string, count int, randomPlace bool, position *entities.Position) ItemConfig {
+	items, err := testutil.LoadAllEquipment()
+	require.NoError(t, err, "Failed to load item data")
+
+	_, ok := items[key]
+	require.True(t, ok, "Item %s not found in test data", key)
+
+	return ItemConfig{
+		Key:         key,
+		Count:       count,
+		RandomPlace: randomPlace,
+		Position:    position,
 	}
-
-	return config
 }
 
 func TestAddMonstersToRoom(t *testing.T) {
@@ -140,7 +161,7 @@ func TestAddMonstersToRoom(t *testing.T) {
 				return room
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
@@ -157,7 +178,7 @@ func TestAddMonstersToRoom(t *testing.T) {
 				return room
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 3, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 3, true, nil),
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
@@ -175,36 +196,42 @@ func TestAddMonstersToRoom(t *testing.T) {
 				return room
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Orc", 0.5, 1, false, &entities.Position{X: 3, Y: 4}),
+				createTestMonsterConfigWithRealData(t, "bandit-captain", 1, false, &entities.Position{X: 3, Y: 4}),
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
 				assert.Len(t, room.Monsters, 1)
-				assert.Equal(t, "Orc", room.Monsters[0].Name)
+				assert.Equal(t, "Bandit Captain", room.Monsters[0].Name)
 				assert.Equal(t, 3, room.Monsters[0].Position.X)
 				assert.Equal(t, 4, room.Monsters[0].Position.Y)
 			},
 		},
 		{
-			name: "Auto-initialize grid",
+			name: "Room without initialized grid",
 			roomSetup: func() *entities.Room {
 				// Create room without grid
 				return entities.NewRoom(10, 10, entities.LightLevelBright)
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
-				assert.NotNil(t, room.Grid)
+				// Grid should remain nil as we no longer force initialization
+				assert.Nil(t, room.Grid)
 				assert.Len(t, room.Monsters, 1)
+				// Monster should still have a position
+				assert.GreaterOrEqual(t, room.Monsters[0].Position.X, 0)
+				assert.Less(t, room.Monsters[0].Position.X, room.Width)
+				assert.GreaterOrEqual(t, room.Monsters[0].Position.Y, 0)
+				assert.Less(t, room.Monsters[0].Position.Y, room.Height)
 			},
 		},
 		{
 			name:      "Nil room",
 			roomSetup: func() *entities.Room { return nil },
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
 			},
 			expectError: true,
 		},
@@ -217,7 +244,7 @@ func TestAddMonstersToRoom(t *testing.T) {
 			},
 			monsterConfigs: []MonsterConfig{
 				func() MonsterConfig {
-					config := createTestMonsterConfig("Goblin", 0.25, 1, false, nil)
+					config := createTestMonsterConfigWithRealData(t, "goblin", 1, false, nil)
 					return config
 				}(),
 			},
@@ -259,7 +286,7 @@ func TestPopulateRoomWithMonsters(t *testing.T) {
 			name:       "Valid room with monsters",
 			roomConfig: createTestRoomConfig(10, 10, entities.LightLevelBright, true),
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 2, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 2, true, nil),
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
@@ -274,7 +301,7 @@ func TestPopulateRoomWithMonsters(t *testing.T) {
 			name:       "Invalid room dimensions",
 			roomConfig: createTestRoomConfig(-5, 10, entities.LightLevelBright, true),
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
 			},
 			expectError: true,
 		},
@@ -283,7 +310,7 @@ func TestPopulateRoomWithMonsters(t *testing.T) {
 			roomConfig: createTestRoomConfig(10, 10, entities.LightLevelBright, true),
 			monsterConfigs: []MonsterConfig{
 				func() MonsterConfig {
-					config := createTestMonsterConfig("Goblin", 0.25, 1, false, nil)
+					config := createTestMonsterConfigWithRealData(t, "goblin", 1, false, nil)
 					return config
 				}(),
 			},
@@ -316,13 +343,7 @@ func TestPopulateRoomWithMonsters(t *testing.T) {
 
 func TestCleanupRoom(t *testing.T) {
 	// Create a mock monster repository for testing
-	mockRepo := &MockMonsterRepository{
-		xpValues: map[string]int{
-			"monster_Goblin": 50,
-			"monster_Orc":    100,
-			"monster_Troll":  450,
-		},
-	}
+	mockRepo := NewMockMonsterRepositoryWithTestData(t)
 
 	// Create a service with the mock repository
 	service := &RoomService{
@@ -344,18 +365,18 @@ func TestCleanupRoom(t *testing.T) {
 				entities.InitializeGrid(room)
 
 				// Add three different monsters
-				goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
-				orc := entities.Monster{ID: "2", Key: "monster_Orc", Name: "Orc", Position: entities.Position{X: 3, Y: 3}}
-				troll := entities.Monster{ID: "3", Key: "monster_Troll", Name: "Troll", Position: entities.Position{X: 5, Y: 5}}
+				goblin := entities.Monster{ID: "1", Key: "monster_goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+				banditcaptain := entities.Monster{ID: "2", Key: "monster_bandit-captain", Name: "Bandit Captain", Position: entities.Position{X: 3, Y: 3}}
+				adultbluedragon := entities.Monster{ID: "3", Key: "monster_adult-blue-dragon", Name: "Adult Blue Dragon", Position: entities.Position{X: 5, Y: 5}}
 
 				entities.AddMonster(room, goblin)
-				entities.AddMonster(room, orc)
-				entities.AddMonster(room, troll)
+				entities.AddMonster(room, banditcaptain)
+				entities.AddMonster(room, adultbluedragon)
 
 				return room
 			},
 			monsterIDs:    []string{}, // Empty means remove all
-			expectedXP:    600,        // 50 + 100 + 450
+			expectedXP:    15500,      // 50 (goblin) + 450 (bandit captain) + 15000 (adult blue dragon)
 			expectedCount: 0,
 			notRemovedIDs: []string{}, // All should be removed
 		},
@@ -366,19 +387,19 @@ func TestCleanupRoom(t *testing.T) {
 				entities.InitializeGrid(room)
 
 				// Add three different monsters
-				goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
-				orc := entities.Monster{ID: "2", Key: "monster_Orc", Name: "Orc", Position: entities.Position{X: 3, Y: 3}}
-				troll := entities.Monster{ID: "3", Key: "monster_Troll", Name: "Troll", Position: entities.Position{X: 5, Y: 5}}
+				goblin := entities.Monster{ID: "1", Key: "monster_goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+				banditcaptain := entities.Monster{ID: "2", Key: "monster_bandit-captain", Name: "Bandit Captain", Position: entities.Position{X: 3, Y: 3}}
+				adultbluedragon := entities.Monster{ID: "3", Key: "monster_adult-blue-dragon", Name: "Adult Blue Dragon", Position: entities.Position{X: 5, Y: 5}}
 
 				entities.AddMonster(room, goblin)
-				entities.AddMonster(room, orc)
-				entities.AddMonster(room, troll)
+				entities.AddMonster(room, banditcaptain)
+				entities.AddMonster(room, adultbluedragon)
 
 				return room
 			},
-			monsterIDs:    []string{"1", "3"}, // Remove goblin and troll
-			expectedXP:    500,                // 50 + 450
-			expectedCount: 1,                  // Only orc should remain
+			monsterIDs:    []string{"1", "3"}, // Remove goblin and adultbluedragon
+			expectedXP:    15050,              // 50 (goblin) + 15000 (adult blue dragon)
+			expectedCount: 1,                  // Only banditcaptain should remain
 			notRemovedIDs: []string{},         // All specified monsters should be removed
 		},
 		{
@@ -388,7 +409,7 @@ func TestCleanupRoom(t *testing.T) {
 				entities.InitializeGrid(room)
 
 				// Add one monster
-				goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+				goblin := entities.Monster{ID: "1", Key: "monster_goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
 				entities.AddMonster(room, goblin)
 
 				return room
@@ -584,8 +605,8 @@ func TestPopulateRoomWithMonstersAndPlayers(t *testing.T) {
 				createTestPlayerConfig("Legolas", 5, true, nil),
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 3, true, nil),
-				createTestMonsterConfig("Orc", 0.5, 1, false, &entities.Position{X: 5, Y: 5}),
+				createTestMonsterConfigWithRealData(t, "goblin", 2, true, nil),
+				createTestMonsterConfigWithRealData(t, "bandit-captain", 1, false, &entities.Position{X: 5, Y: 5}),
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
@@ -595,19 +616,19 @@ func TestPopulateRoomWithMonstersAndPlayers(t *testing.T) {
 				assert.Len(t, room.Players, 2)
 
 				// Check monsters
-				assert.Len(t, room.Monsters, 4) // 3 goblins + 1 orc
+				assert.Len(t, room.Monsters, 3) // 2 goblins + 1 banditcaptain
 
-				// Find the orc (should be at position 5,5)
-				var orcFound bool
+				// Find the banditcaptain (should be at position 5,5)
+				var banditcaptainFound bool
 				for _, monster := range room.Monsters {
-					if monster.Name == "Orc" {
+					if monster.Name == "Bandit Captain" {
 						assert.Equal(t, 5, monster.Position.X)
 						assert.Equal(t, 5, monster.Position.Y)
-						orcFound = true
+						banditcaptainFound = true
 						break
 					}
 				}
-				assert.True(t, orcFound, "Orc should be found at the specified position")
+				assert.True(t, banditcaptainFound, "Bandit Captain should be found at the specified position")
 			},
 		},
 		{
@@ -617,7 +638,7 @@ func TestPopulateRoomWithMonstersAndPlayers(t *testing.T) {
 				createTestPlayerConfig("Aragorn", 5, true, nil),
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
 			},
 			expectError: true,
 		},
@@ -628,7 +649,7 @@ func TestPopulateRoomWithMonstersAndPlayers(t *testing.T) {
 				createTestPlayerConfig("Aragorn", 5, false, nil), // Missing position
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 1, true, nil),
+				createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
 			},
 			expectError: true,
 		},
@@ -639,7 +660,10 @@ func TestPopulateRoomWithMonstersAndPlayers(t *testing.T) {
 				createTestPlayerConfig("Aragorn", 5, true, nil),
 			},
 			monsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Goblin", 0.25, 1, false, nil), // Missing position
+				func() MonsterConfig {
+					config := createTestMonsterConfigWithRealData(t, "goblin", 1, false, nil)
+					return config
+				}(),
 			},
 			expectError: true,
 		},
@@ -680,15 +704,44 @@ func (m *MockMonsterRepository) GetMonsterXP(monsterKey string) (int, error) {
 	return 0, fmt.Errorf("monster not found: %s", monsterKey)
 }
 
+// NewMockMonsterRepositoryWithTestData creates a MockMonsterRepository with data from test JSON files
+func NewMockMonsterRepositoryWithTestData(t *testing.T) *MockMonsterRepository {
+	xpValues, err := testutil.CreateTestMonsterRepository()
+	require.NoError(t, err, "Failed to create test monster repository")
+
+	// Ensure we have at least the basic monsters needed for tests
+	requiredMonsters := []string{"goblin", "bandit-captain", "adult-blue-dragon"}
+	for _, monster := range requiredMonsters {
+		monsterKey := "monster_" + monster
+		_, exists := xpValues[monsterKey]
+		require.True(t, exists, "Required monster %s not found in test data", monsterKey)
+	}
+
+	return &MockMonsterRepository{
+		xpValues: xpValues,
+	}
+}
+
+// NewMockItemRepositoryWithTestData creates a mock item repository with real test data
+func NewMockItemRepositoryWithTestData(t *testing.T, requiredItems []string) *MockItemRepository {
+	items, err := testutil.LoadAllEquipment()
+	require.NoError(t, err, "Failed to load item data")
+
+	// Verify that all required items are available
+	for _, item := range requiredItems {
+		itemKey := "item_" + item
+		_, exists := items[itemKey]
+		require.True(t, exists, "Required item %s not found in test data", itemKey)
+	}
+
+	return &MockItemRepository{
+		items: items,
+	}
+}
+
 func TestBalanceMonsterConfigs(t *testing.T) {
 	// Create a mock monster repository
-	mockRepo := &MockMonsterRepository{
-		xpValues: map[string]int{
-			"monster_goblin": 50,
-			"monster_orc":    100,
-			"monster_troll":  450,
-		},
-	}
+	mockRepo := NewMockMonsterRepositoryWithTestData(t)
 
 	// Create a room service with the mock repository
 	roomService := &RoomService{
@@ -708,8 +761,8 @@ func TestBalanceMonsterConfigs(t *testing.T) {
 
 	// Create monster configs
 	monsterConfigs := []MonsterConfig{
-		{Name: "Goblin", Key: "monster_goblin", CR: 0.25, Count: 2, RandomPlace: true},
-		{Name: "Orc", Key: "monster_orc", CR: 0.5, Count: 1, RandomPlace: true},
+		{Name: "Goblin", Key: "goblin", CR: 0.25, Count: 2, RandomPlace: true},
+		{Name: "Bandit Captain", Key: "bandit-captain", CR: 0.5, Count: 1, RandomPlace: true},
 	}
 
 	// Test cases
@@ -734,7 +787,7 @@ func TestBalanceMonsterConfigs(t *testing.T) {
 				for _, config := range configs {
 					totalCount += config.Count
 				}
-				// Original total was 3 (2 goblins + 1 orc)
+				// Original total was 3 (2 goblins + 1 banditcaptain)
 				// For a level 5 party of 4, medium difficulty should scale this up
 				assert.GreaterOrEqual(t, totalCount, 3)
 			},
@@ -777,12 +830,7 @@ func TestBalanceMonsterConfigs(t *testing.T) {
 
 func TestPopulateRoomWithBalancedMonsters(t *testing.T) {
 	// Create a mock monster repository
-	mockRepo := &MockMonsterRepository{
-		xpValues: map[string]int{
-			"monster_goblin": 50,
-			"monster_orc":    100,
-		},
-	}
+	mockRepo := NewMockMonsterRepositoryWithTestData(t)
 
 	// Create a room service with the mock repository
 	roomService := &RoomService{
@@ -809,7 +857,7 @@ func TestPopulateRoomWithBalancedMonsters(t *testing.T) {
 
 	// Create monster configs
 	monsterConfigs := []MonsterConfig{
-		{Name: "Goblin", Key: "monster_goblin", CR: 0.25, Count: 2, RandomPlace: true},
+		{Name: "Goblin", Key: "goblin", CR: 0.25, Count: 2, RandomPlace: true},
 	}
 
 	// Test cases
@@ -870,13 +918,7 @@ func TestPopulateRoomWithBalancedMonsters(t *testing.T) {
 
 func TestDetermineRoomDifficulty(t *testing.T) {
 	// Create a mock monster repository
-	mockRepo := &MockMonsterRepository{
-		xpValues: map[string]int{
-			"monster_goblin": 50,
-			"monster_orc":    100,
-			"monster_troll":  450,
-		},
-	}
+	mockRepo := NewMockMonsterRepositoryWithTestData(t)
 
 	// Create a room service with the mock repository
 	roomService := &RoomService{
@@ -941,8 +983,8 @@ func TestDetermineRoomDifficulty(t *testing.T) {
 					Height:     10,
 					LightLevel: entities.LightLevelBright,
 					Monsters: []entities.Monster{
-						{ID: "1", Name: "Troll", CR: 5},
-						{ID: "2", Name: "Troll", CR: 5},
+						{ID: "1", Name: "Adult Blue Dragon", CR: 5},
+						{ID: "2", Name: "Adult Blue Dragon", CR: 5},
 					},
 				}
 			},
@@ -1061,45 +1103,8 @@ func (m *MockItemRepository) GetRandomItemsByCategory(category string, count int
 }
 
 func TestPopulateTreasureRoom(t *testing.T) {
-	// Create mock item repository with test items
-	mockItemRepo := &MockItemRepository{
-		items: map[string]*entities.Item{
-			"item_sword": {
-				ID:         "1",
-				Key:        "item_sword",
-				Name:       "Longsword",
-				Type:       "weapon",
-				Category:   "martial-weapons",
-				Value:      15,
-				ValueUnit:  "gp",
-				Weight:     3,
-				DamageDice: "1d8",
-				DamageType: "slashing",
-			},
-			"item_armor": {
-				ID:                  "2",
-				Key:                 "item_armor",
-				Name:                "Chain Mail",
-				Type:                "armor",
-				Category:            "heavy-armor",
-				Value:               75,
-				ValueUnit:           "gp",
-				Weight:              55,
-				ArmorClass:          16,
-				StealthDisadvantage: true,
-			},
-			"item_potion": {
-				ID:        "3",
-				Key:       "item_potion",
-				Name:      "Potion of Healing",
-				Type:      "potion",
-				Category:  "potion",
-				Value:     50,
-				ValueUnit: "gp",
-				Weight:    1,
-			},
-		},
-	}
+	// Create mock item repository with real test data
+	mockItemRepo := NewMockItemRepositoryWithTestData(t, []string{"abacus", "battleaxe", "studded-leather-armor"})
 
 	// Create a room service with the mock repository
 	roomService := &RoomService{
@@ -1147,7 +1152,7 @@ func TestPopulateTreasureRoom(t *testing.T) {
 			roomConfig: createTestRoomConfig(15, 15, entities.LightLevelDim, true),
 			itemCount:  2,
 			guardianMonsterConfigs: []MonsterConfig{
-				createTestMonsterConfig("Dragon", 5.0, 1, true, nil),
+				createTestMonsterConfigWithRealData(t, "adult-blue-dragon", 1, true, nil),
 			},
 			expectError: false,
 			checkFunc: func(t *testing.T, room *entities.Room) {
@@ -1160,7 +1165,7 @@ func TestPopulateTreasureRoom(t *testing.T) {
 
 				// Check guardian was added
 				assert.Len(t, room.Monsters, 1)
-				assert.Equal(t, "Dragon", room.Monsters[0].Name)
+				assert.Equal(t, "Adult Blue Dragon", room.Monsters[0].Name)
 			},
 		},
 		{
@@ -1439,23 +1444,23 @@ func TestGridlessRoomEntityPlacement(t *testing.T) {
 
 	// Test monster placement
 	monsterConfigs := []MonsterConfig{
-		createTestMonsterConfig("Goblin", 0.25, 3, true, nil),
-		createTestMonsterConfig("Orc", 0.5, 2, false, &entities.Position{X: 5, Y: 5}),
+		createTestMonsterConfigWithRealData(t, "goblin", 3, true, nil),
+		createTestMonsterConfigWithRealData(t, "bandit-captain", 2, false, &entities.Position{X: 5, Y: 5}),
 	}
 	err = service.AddMonstersToRoom(room, monsterConfigs)
 	assert.NoError(t, err)
 	assert.Len(t, room.Monsters, 5)
 
 	// Verify specific positions for fixed-position monsters
-	orcCount := 0
+	banditcaptainCount := 0
 	for _, monster := range room.Monsters {
-		if monster.Name == "Orc" {
-			orcCount++
+		if monster.Name == "Bandit Captain" {
+			banditcaptainCount++
 			assert.Equal(t, 5, monster.Position.X)
 			assert.Equal(t, 5, monster.Position.Y)
 		}
 	}
-	assert.Equal(t, 2, orcCount)
+	assert.Equal(t, 2, banditcaptainCount)
 
 	// Test player placement
 	playerConfigs := []PlayerConfig{
@@ -1479,49 +1484,27 @@ func TestGridlessRoomEntityPlacement(t *testing.T) {
 
 	// Test item placement
 	itemConfigs := []ItemConfig{
-		{
-			Key:         "item_potion",
-			Count:       2,
-			RandomPlace: true,
-		},
-		{
-			Key:         "item_scroll",
-			Count:       1,
-			RandomPlace: false,
-			Position:    &entities.Position{X: 7, Y: 7},
-		},
+		createTestItemConfigWithRealData(t, "abacus", 2, true, nil),
+		createTestItemConfigWithRealData(t, "battleaxe", 1, false, &entities.Position{X: 7, Y: 7}),
 	}
 
-	// Mock the item repository to return items
-	service.itemRepo = &MockItemRepository{
-		items: map[string]*entities.Item{
-			"item_potion": {
-				Key:  "item_potion",
-				Name: "Potion of Healing",
-				Type: "potion",
-			},
-			"item_scroll": {
-				Key:  "item_scroll",
-				Name: "Scroll of Fireball",
-				Type: "scroll",
-			},
-		},
-	}
+	// Set up the item repository with real test data
+	service.itemRepo = NewMockItemRepositoryWithTestData(t, []string{"abacus", "battleaxe"})
 
 	err = service.AddItemsToRoom(room, itemConfigs)
 	assert.NoError(t, err)
 	assert.Len(t, room.Items, 3)
 
 	// Verify specific position for fixed-position item
-	var foundScroll bool
+	var foundBattleaxe bool
 	for _, item := range room.Items {
-		if item.Name == "Scroll of Fireball" {
-			foundScroll = true
+		if item.Name == "Battleaxe" {
+			foundBattleaxe = true
 			assert.Equal(t, 7, item.Position.X)
 			assert.Equal(t, 7, item.Position.Y)
 		}
 	}
-	assert.True(t, foundScroll, "Scroll should be found in the items list")
+	assert.True(t, foundBattleaxe, "Battleaxe should be found in the items list")
 
 	// Verify grid is still nil after all entity placements
 	assert.Nil(t, room.Grid)
@@ -1551,13 +1534,7 @@ func TestGridlessRoomEntityPlacement(t *testing.T) {
 
 func TestGridlessRoomCleanup(t *testing.T) {
 	// Create a mock monster repository for testing
-	mockRepo := &MockMonsterRepository{
-		xpValues: map[string]int{
-			"monster_Goblin": 50,
-			"monster_Orc":    100,
-			"monster_Troll":  450,
-		},
-	}
+	mockRepo := NewMockMonsterRepositoryWithTestData(t)
 
 	// Create a service with the mock repository
 	service := &RoomService{
@@ -1570,13 +1547,13 @@ func TestGridlessRoomCleanup(t *testing.T) {
 	assert.Nil(t, room.Grid)
 
 	// Add monsters directly using the placement interface
-	goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
-	orc := entities.Monster{ID: "2", Key: "monster_Orc", Name: "Orc", Position: entities.Position{X: 3, Y: 3}}
-	troll := entities.Monster{ID: "3", Key: "monster_Troll", Name: "Troll", Position: entities.Position{X: 5, Y: 5}}
+	goblin := entities.Monster{ID: "1", Key: "monster_goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+	banditcaptain := entities.Monster{ID: "2", Key: "monster_bandit-captain", Name: "Bandit Captain", Position: entities.Position{X: 3, Y: 3}}
+	adultbluedragon := entities.Monster{ID: "3", Key: "monster_adult-blue-dragon", Name: "Adult Blue Dragon", Position: entities.Position{X: 5, Y: 5}}
 
 	entities.AddMonster(room, goblin)
-	entities.AddMonster(room, orc)
-	entities.AddMonster(room, troll)
+	entities.AddMonster(room, banditcaptain)
+	entities.AddMonster(room, adultbluedragon)
 
 	// Verify monsters were added
 	assert.Len(t, room.Monsters, 3)
@@ -1586,12 +1563,12 @@ func TestGridlessRoomCleanup(t *testing.T) {
 	xp, notRemoved, err := service.CleanupRoom(room, entities.CellMonster, []string{"1", "3"})
 	assert.NoError(t, err)
 	assert.Empty(t, notRemoved)
-	assert.Equal(t, 500, xp) // 50 + 450
+	assert.Equal(t, 15050, xp) // 50 (goblin) + 15000 (adult blue dragon)
 	assert.Len(t, room.Monsters, 1)
 
-	// Verify the remaining monster is the orc
+	// Verify the remaining monster is the banditcaptain
 	assert.Equal(t, "2", room.Monsters[0].ID)
-	assert.Equal(t, "Orc", room.Monsters[0].Name)
+	assert.Equal(t, "Bandit Captain", room.Monsters[0].Name)
 
 	// Verify grid is still nil after cleanup
 	assert.Nil(t, room.Grid)
