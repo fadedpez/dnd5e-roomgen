@@ -1113,7 +1113,7 @@ func TestPopulateTreasureRoom(t *testing.T) {
 		itemCount              int
 		guardianMonsterConfigs []MonsterConfig
 		expectError            bool
-		checkFunc              func(*testing.T, *entities.Room)
+		checkFunc              func(t *testing.T, room *entities.Room)
 	}{
 		{
 			name:        "Basic treasure room",
@@ -1251,7 +1251,7 @@ func TestPopulateRandomTreasureRoomWithParty(t *testing.T) {
 		includeGuardian bool
 		difficulty      entities.EncounterDifficulty
 		expectError     bool
-		checkFunc       func(*testing.T, *entities.Room)
+		checkFunc       func(t *testing.T, room *entities.Room)
 	}{
 		{
 			name:       "Small party, easy difficulty, no guardian",
@@ -1412,4 +1412,187 @@ func (m *MockBalancer) CalculateTargetCR(party entities.Party, difficulty entiti
 	}
 	avgLevel := float64(totalLevels) / float64(len(party.Members))
 	return avgLevel, nil
+}
+
+func TestGridlessRoomEntityPlacement(t *testing.T) {
+	// TODO: Update this test to use real monster data from the API instead of mock names
+	// Currently, this test will produce 404 warnings when calculating XP because
+	// it uses fictional monster names that don't exist in the API.
+	// These warnings are expected and don't affect the test functionality.
+
+	service, err := NewRoomService()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a gridless room
+	roomConfig := createTestRoomConfig(10, 10, entities.LightLevelBright, false)
+	room, err := service.GenerateRoom(roomConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify room is gridless
+	assert.Nil(t, room.Grid)
+	assert.Equal(t, 10, room.Width)
+	assert.Equal(t, 10, room.Height)
+
+	// Test monster placement
+	monsterConfigs := []MonsterConfig{
+		createTestMonsterConfig("Goblin", 0.25, 3, true, nil),
+		createTestMonsterConfig("Orc", 0.5, 2, false, &entities.Position{X: 5, Y: 5}),
+	}
+	err = service.AddMonstersToRoom(room, monsterConfigs)
+	assert.NoError(t, err)
+	assert.Len(t, room.Monsters, 5)
+
+	// Verify specific positions for fixed-position monsters
+	orcCount := 0
+	for _, monster := range room.Monsters {
+		if monster.Name == "Orc" {
+			orcCount++
+			assert.Equal(t, 5, monster.Position.X)
+			assert.Equal(t, 5, monster.Position.Y)
+		}
+	}
+	assert.Equal(t, 2, orcCount)
+
+	// Test player placement
+	playerConfigs := []PlayerConfig{
+		createTestPlayerConfig("Aragorn", 5, true, nil),
+		createTestPlayerConfig("Gandalf", 10, false, &entities.Position{X: 3, Y: 3}),
+	}
+	err = service.AddPlayersToRoom(room, playerConfigs)
+	assert.NoError(t, err)
+	assert.Len(t, room.Players, 2)
+
+	// Verify specific position for fixed-position player
+	var foundGandalf bool
+	for _, player := range room.Players {
+		if player.Name == "Gandalf" {
+			foundGandalf = true
+			assert.Equal(t, 3, player.Position.X)
+			assert.Equal(t, 3, player.Position.Y)
+		}
+	}
+	assert.True(t, foundGandalf, "Gandalf should be found in the players list")
+
+	// Test item placement
+	itemConfigs := []ItemConfig{
+		{
+			Key:         "item_potion",
+			Count:       2,
+			RandomPlace: true,
+		},
+		{
+			Key:         "item_scroll",
+			Count:       1,
+			RandomPlace: false,
+			Position:    &entities.Position{X: 7, Y: 7},
+		},
+	}
+
+	// Mock the item repository to return items
+	service.itemRepo = &MockItemRepository{
+		items: map[string]*entities.Item{
+			"item_potion": {
+				Key:  "item_potion",
+				Name: "Potion of Healing",
+				Type: "potion",
+			},
+			"item_scroll": {
+				Key:  "item_scroll",
+				Name: "Scroll of Fireball",
+				Type: "scroll",
+			},
+		},
+	}
+
+	err = service.AddItemsToRoom(room, itemConfigs)
+	assert.NoError(t, err)
+	assert.Len(t, room.Items, 3)
+
+	// Verify specific position for fixed-position item
+	var foundScroll bool
+	for _, item := range room.Items {
+		if item.Name == "Scroll of Fireball" {
+			foundScroll = true
+			assert.Equal(t, 7, item.Position.X)
+			assert.Equal(t, 7, item.Position.Y)
+		}
+	}
+	assert.True(t, foundScroll, "Scroll should be found in the items list")
+
+	// Verify grid is still nil after all entity placements
+	assert.Nil(t, room.Grid)
+
+	// Test entity removal
+	// Remove all monsters
+	_, notRemoved, err := service.CleanupRoom(room, entities.CellMonster, []string{})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Len(t, room.Monsters, 0)
+
+	// Remove one player
+	_, notRemoved, err = service.CleanupRoom(room, entities.CellPlayer, []string{room.Players[0].ID})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Len(t, room.Players, 1)
+
+	// Remove one item
+	_, notRemoved, err = service.CleanupRoom(room, entities.CellItem, []string{room.Items[0].ID})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Len(t, room.Items, 2)
+
+	// Verify grid is still nil after entity removal
+	assert.Nil(t, room.Grid)
+}
+
+func TestGridlessRoomCleanup(t *testing.T) {
+	// Create a mock monster repository for testing
+	mockRepo := &MockMonsterRepository{
+		xpValues: map[string]int{
+			"monster_Goblin": 50,
+			"monster_Orc":    100,
+			"monster_Troll":  450,
+		},
+	}
+
+	// Create a service with the mock repository
+	service := &RoomService{
+		monsterRepo: mockRepo,
+	}
+
+	// Create a gridless room with monsters
+	room := entities.NewRoom(10, 10, entities.LightLevelBright)
+	// Explicitly not initializing grid
+	assert.Nil(t, room.Grid)
+
+	// Add monsters directly using the placement interface
+	goblin := entities.Monster{ID: "1", Key: "monster_Goblin", Name: "Goblin", Position: entities.Position{X: 1, Y: 1}}
+	orc := entities.Monster{ID: "2", Key: "monster_Orc", Name: "Orc", Position: entities.Position{X: 3, Y: 3}}
+	troll := entities.Monster{ID: "3", Key: "monster_Troll", Name: "Troll", Position: entities.Position{X: 5, Y: 5}}
+
+	entities.AddMonster(room, goblin)
+	entities.AddMonster(room, orc)
+	entities.AddMonster(room, troll)
+
+	// Verify monsters were added
+	assert.Len(t, room.Monsters, 3)
+	assert.Nil(t, room.Grid)
+
+	// Test removing specific monsters
+	xp, notRemoved, err := service.CleanupRoom(room, entities.CellMonster, []string{"1", "3"})
+	assert.NoError(t, err)
+	assert.Empty(t, notRemoved)
+	assert.Equal(t, 500, xp) // 50 + 450
+	assert.Len(t, room.Monsters, 1)
+
+	// Verify the remaining monster is the orc
+	assert.Equal(t, "2", room.Monsters[0].ID)
+	assert.Equal(t, "Orc", room.Monsters[0].Name)
+
+	// Verify grid is still nil after cleanup
+	assert.Nil(t, room.Grid)
 }

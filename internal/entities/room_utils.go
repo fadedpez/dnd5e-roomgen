@@ -16,9 +16,6 @@ func NewRoom(width, height int, lightLevel LightLevel) *Room {
 		Items:      make([]Item, 0),
 	}
 
-	// Initialize the grid
-	InitializeGrid(room)
-
 	return room
 }
 

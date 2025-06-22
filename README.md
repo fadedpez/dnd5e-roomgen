@@ -400,6 +400,281 @@ Gridless rooms are useful for:
 - Simplified room management without spatial constraints
 - Improved performance for large rooms with many entities
 
+## Customization and Advanced Configuration
+
+The DnD 5e Room Generator library is designed to be flexible and extensible. This section covers how to customize the library for your specific needs.
+
+### Custom Configuration Options
+
+#### Complete RoomConfig Options
+
+The `RoomConfig` struct provides several options for customizing room generation:
+
+```go
+roomConfig := services.RoomConfig{
+    Width:       15,              // Width of the room in grid units
+    Height:      10,              // Height of the room in grid units
+    LightLevel:  entities.LightLevelDim, // Light level: LightLevelBright, LightLevelDim, or LightLevelDark
+    Description: "A dusty chamber with cobwebs in the corners", // Optional room description
+    RoomType:    "dungeon",       // Optional room type for categorization
+    UseGrid:     true,            // Whether to use a grid for spatial tracking
+}
+```
+
+#### Complete MonsterConfig Options
+
+The `MonsterConfig` struct allows detailed configuration of monsters:
+
+```go
+monsterConfigs := []services.MonsterConfig{
+    {
+        Name:        "Goblin",    // Display name of the monster
+        Key:         "monster_goblin", // API key for the monster (for XP calculation)
+        CR:          0.25,        // Challenge Rating
+        Count:       3,           // Number of this monster to place
+        RandomPlace: true,        // Whether to place randomly or at a specific position
+        Position:    nil,         // Position is nil for random placement
+    },
+    {
+        Name:        "Dragon",
+        Key:         "monster_adult_red_dragon",
+        CR:          17.0,
+        Count:       1,
+        RandomPlace: false,       // Fixed position placement
+        Position:    &entities.Position{X: 7, Y: 5}, // Specific position
+    },
+}
+```
+
+#### Complete PlayerConfig Options
+
+The `PlayerConfig` struct configures player characters:
+
+```go
+playerConfigs := []services.PlayerConfig{
+    {
+        Name:        "Aragorn",   // Player character name
+        Level:       5,           // Character level (used for encounter balancing)
+        RandomPlace: true,        // Whether to place randomly
+        Position:    nil,         // Position is nil for random placement
+    },
+    {
+        Name:        "Gandalf",
+        Level:       10,
+        RandomPlace: false,
+        Position:    &entities.Position{X: 2, Y: 2}, // Specific position
+    },
+}
+```
+
+#### Complete ItemConfig Options
+
+The `ItemConfig` struct configures items and treasures:
+
+```go
+itemConfigs := []services.ItemConfig{
+    {
+        Name:        "Healing Potion", // Item name
+        Key:         "item_healing_potion", // API key for the item
+        Value:       50,           // Gold piece value
+        Count:       2,            // Number of this item to place
+        RandomPlace: true,         // Whether to place randomly
+        Position:    nil,          // Position is nil for random placement
+    },
+    {
+        Name:        "Magic Sword",
+        Key:         "item_magic_sword",
+        Value:       500,
+        Count:       1,
+        RandomPlace: false,
+        Position:    &entities.Position{X: 7, Y: 7}, // Specific position
+    },
+}
+```
+
+### Extending the Library
+
+#### Creating Custom Repositories
+
+You can implement custom repositories by implementing the repository interfaces:
+
+```go
+// Custom monster repository
+type CustomMonsterRepository struct {
+    // Your custom fields here
+}
+
+// Implement the MonsterRepository interface
+func (r *CustomMonsterRepository) GetMonsterXP(key string) (int, error) {
+    // Your custom implementation
+    return 100, nil
+}
+
+// Use your custom repository with the room service
+roomService := services.NewRoomService(WithMonsterRepository(&CustomMonsterRepository{}))
+```
+
+#### Custom Encounter Balancing
+
+You can implement custom encounter balancing by implementing the `EncounterBalancer` interface:
+
+```go
+// Custom encounter balancer
+type CustomBalancer struct {
+    // Your custom fields here
+}
+
+// Implement the EncounterBalancer interface
+func (b *CustomBalancer) AdjustMonsterSelection(configs []services.MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) ([]services.MonsterConfig, error) {
+    // Your custom implementation
+    return configs, nil
+}
+
+func (b *CustomBalancer) DetermineEncounterDifficulty(monsters []entities.Monster, party entities.Party) (entities.EncounterDifficulty, error) {
+    // Your custom implementation
+    return entities.EncounterDifficultyMedium, nil
+}
+
+func (b *CustomBalancer) CalculateTargetCR(party entities.Party, difficulty entities.EncounterDifficulty) (float64, error) {
+    // Your custom implementation
+    return 5.0, nil
+}
+
+// Use your custom balancer with the room service
+roomService := services.NewRoomService(WithEncounterBalancer(&CustomBalancer{}))
+```
+
+### Advanced Room Service Configuration
+
+The `NewRoomService` function accepts functional options for advanced configuration:
+
+```go
+// Create a room service with custom options
+roomService, err := services.NewRoomService(
+    // Custom monster repository
+    services.WithMonsterRepository(customMonsterRepo),
+    
+    // Custom item repository
+    services.WithItemRepository(customItemRepo),
+    
+    // Custom encounter balancer
+    services.WithEncounterBalancer(customBalancer),
+    
+    // Custom random source for deterministic testing
+    services.WithRandomSource(rand.New(rand.NewSource(42))),
+)
+```
+
+### Integration with External Systems
+
+#### Using with a Web Framework
+
+```go
+// Example using the library with a web framework (e.g., Gin)
+func handleGenerateRoom(c *gin.Context) {
+    // Parse request
+    var req struct {
+        Width      int    `json:"width"`
+        Height     int    `json:"height"`
+        LightLevel string `json:"lightLevel"`
+        UseGrid    bool   `json:"useGrid"`
+    }
+    if err := c.BindJSON(&req); err != nil {
+        c.JSON(400, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // Create room config
+    roomConfig := services.RoomConfig{
+        Width:      req.Width,
+        Height:     req.Height,
+        LightLevel: entities.LightLevel(req.LightLevel),
+        UseGrid:    req.UseGrid,
+    }
+    
+    // Generate room
+    roomService, _ := services.NewRoomService()
+    room, err := roomService.GenerateRoom(roomConfig)
+    if err != nil {
+        c.JSON(500, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // Return room data
+    c.JSON(200, room)
+}
+```
+
+#### Using with a Game Engine
+
+```go
+// Example using the library with a game engine
+func createGameRoom(engine GameEngine, width, height int, lightLevel string) {
+    // Create room config
+    roomConfig := services.RoomConfig{
+        Width:      width,
+        Height:     height,
+        LightLevel: entities.LightLevel(lightLevel),
+        UseGrid:    true,
+    }
+    
+    // Generate room with monsters
+    roomService, _ := services.NewRoomService()
+    monsterConfigs := []services.MonsterConfig{
+        {Name: "Goblin", CR: 0.25, Count: 3, RandomPlace: true},
+        {Name: "Orc", CR: 0.5, Count: 2, RandomPlace: true},
+    }
+    
+    room, _ := roomService.PopulateRoomWithMonsters(roomConfig, monsterConfigs)
+    
+    // Convert to game engine entities
+    gameRoom := engine.CreateRoom(room.Width, room.Height)
+    for _, monster := range room.Monsters {
+        gameMonster := engine.CreateMonster(monster.Name)
+        engine.PlaceEntity(gameMonster, monster.Position.X, monster.Position.Y)
+    }
+    
+    // Set lighting based on room's light level
+    switch room.LightLevel {
+    case entities.LightLevelBright:
+        engine.SetLighting(1.0)
+    case entities.LightLevelDim:
+        engine.SetLighting(0.5)
+    case entities.LightLevelDark:
+        engine.SetLighting(0.1)
+    }
+}
+```
+
+### Performance Optimization
+
+For large rooms or applications with many entities, consider these optimization strategies:
+
+1. **Use gridless rooms** when spatial positioning is not critical
+2. **Batch entity additions** rather than adding entities one by one
+3. **Implement custom repositories** with caching for frequently accessed data
+4. **Use efficient data structures** for custom implementations
+
+```go
+// Example of batch entity addition for better performance
+func addManyMonstersEfficiently(room *entities.Room, monsterCount int) {
+    // Create all configs at once
+    configs := make([]services.MonsterConfig, monsterCount)
+    for i := 0; i < monsterCount; i++ {
+        configs[i] = services.MonsterConfig{
+            Name:        fmt.Sprintf("Monster%d", i),
+            CR:          0.25,
+            Count:       1,
+            RandomPlace: true,
+        }
+    }
+    
+    // Add all monsters in a single call
+    roomService, _ := services.NewRoomService()
+    roomService.AddMonstersToRoom(room, configs)
+}
+```
+
 ## Design Decisions
 
 - The library follows a clean layered architecture with clear separation of concerns
@@ -407,7 +682,19 @@ Gridless rooms are useful for:
 - The service layer depends on interfaces, not concrete implementations
 - External API dependencies are isolated in the repository layer
 
-## Future Enhancements
+## Future Improvements
+
+The following improvements are planned for future releases:
+
+1. **API Data Validation** - Update mock repositories in tests to use real API data to validate API contracts and ensure compatibility with the actual D&D 5e API.
+
+2. **Enhanced Error Handling** - Implement more specific error types for different failure scenarios to help consumers of the library better handle errors.
+
+3. **Additional Room Types** - Support for specialized room types like traps, puzzles, and environmental hazards.
+
+4. **Advanced Encounter Balancing** - More sophisticated algorithms for balancing encounters based on party composition and monster synergies.
+
+## Future Improvements
 
 The current implementation is an MVP focused on room generation and monster placement. Future enhancements planned for the library include:
 
