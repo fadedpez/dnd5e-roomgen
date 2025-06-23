@@ -648,4 +648,4 @@ The DnD 5e API provides access to various resources:
 
 - [DnD 5e API Documentation](https://www.dnd5eapi.co/docs/)
 - [Room Generation Library Documentation](https://github.com/fadedpez/dnd5e-roomgen)
-- Complete examples in the `/examples` directory
+
