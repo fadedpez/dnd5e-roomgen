@@ -318,29 +318,27 @@ if err != nil {
 fmt.Printf("Total XP earned: %d\n", totalXP)
 ```
 
+### API Integration
+
+For detailed information on integrating with the DnD 5e API, including:
+
+- Converting API entities to room service configurations
+- Using the encounter balancer with API monsters
+- Player and item configuration with API integration
+- Generating treasure rooms with API monsters
+- Best practices for API integration
+
+Please see the [API Integration Guide](docs/API_INTEGRATION.md).
+
 ### Using the Monster Repository
+
+For local testing and non-API usage:
 
 ```go
 import (
     "github.com/fadedpez/dnd5e-roomgen/internal/repositories"
-    "net/http"
 )
 
-// Create a monster repository that uses the DnD 5e API
-httpClient := &http.Client{Timeout: 10 * time.Second}
-monsterRepo := repositories.NewAPIMonsterRepository(httpClient)
-
-// Get monster XP
-xp, err := monsterRepo.GetMonsterXP("monster_goblin")
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Goblin XP: %d\n", xp)
-```
-
-### Testing with the Repository Layer
-
-```go
 // Create a test monster repository for unit testing
 testRepo := &repositories.TestMonsterRepository{
     xpValues: map[string]int{
@@ -350,8 +348,96 @@ testRepo := &repositories.TestMonsterRepository{
 }
 
 // Use the test repository in your service
-roomService := services.NewRoomService(testRepo)
+roomService := services.NewRoomService(services.WithMonsterRepository(testRepo))
 ```
+
+For API integration, see the [API Integration Guide](docs/API_INTEGRATION.md).
+
+### Using the Encounter Balancer
+
+The library includes a powerful encounter balancing system that helps create appropriately challenging encounters based on party composition and desired difficulty level.
+
+For detailed examples of using the encounter balancer with the DnD 5e API, see the [API Integration Guide](docs/API_INTEGRATION.md).
+
+#### Integrated Room Service Balancing
+
+For most use cases, you can use the RoomService's integrated balancing methods:
+
+```go
+import (
+    "github.com/fadedpez/dnd5e-roomgen/internal/entities"
+    "github.com/fadedpez/dnd5e-roomgen/internal/services"
+)
+
+// Create a room service (automatically initializes the balancer)
+roomService, err := services.NewRoomService()
+if err != nil {
+    // Handle error
+}
+
+// Create a party
+party := entities.Party{
+    Members: []entities.PartyMember{
+        {Name: "Aragorn", Level: 5},
+        {Name: "Legolas", Level: 5},
+        {Name: "Gimli", Level: 5},
+        {Name: "Gandalf", Level: 7},
+    },
+}
+
+// Define monster configurations
+monsterConfigs := []services.MonsterConfig{
+    {
+        Name:        "Goblin",
+        Key:         "monster_goblin",
+        CR:          0.25,
+        Count:       4,
+        RandomPlace: true,
+    },
+    {
+        Name:        "Bugbear",
+        Key:         "monster_bugbear",
+        CR:          1.0,
+        Count:       1,
+        RandomPlace: true,
+    },
+}
+
+// Method 1: Balance monster configurations without creating a room
+balancedConfigs, err := roomService.BalanceMonsterConfigs(monsterConfigs, party, entities.EncounterDifficultyHard)
+if err != nil {
+    // Handle error
+}
+fmt.Printf("Adjusted monster counts for hard difficulty: %+v\n", balancedConfigs)
+
+// Method 2: Generate a room with automatically balanced monsters in one step
+room, err := roomService.PopulateRoomWithBalancedMonsters(roomConfig, monsterConfigs, party, entities.EncounterDifficultyHard)
+if err != nil {
+    // Handle error
+}
+```
+
+#### Balancer Use Cases
+
+1. **Creating Balanced Encounters**:
+   - Calculate appropriate challenge ratings for your party
+   - Automatically adjust monster counts to match desired difficulty
+
+2. **Analyzing Encounter Difficulty**:
+   - Determine if an existing encounter is Easy, Medium, Hard, or Deadly
+   - Validate encounter designs against party composition
+
+3. **Dynamic Encounter Scaling**:
+   - Scale encounters up or down based on party size and level
+   - Maintain appropriate challenge as party composition changes
+
+4. **Difficulty Customization**:
+   - Choose from standard D&D 5e difficulty levels (Easy, Medium, Hard, Deadly)
+   - Apply consistent difficulty calculations across your application
+
+5. **One-Step Room Generation with Balanced Encounters**:
+   - Generate complete rooms with monsters balanced for your party
+   - Streamline encounter creation while maintaining appropriate challenge
 
 ## Advanced Features
 
