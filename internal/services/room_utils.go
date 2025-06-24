@@ -88,6 +88,15 @@ func MovePlaceable(room *entities.Room, entity entities.Placeable, newPosition e
 					return nil
 				}
 			}
+		case entities.CellNPC:
+			for i := range room.NPCs {
+				if room.NPCs[i].ID == entityID {
+					room.NPCs[i].Position = newPosition
+					// Also update the passed entity
+					entity.SetPosition(newPosition)
+					return nil
+				}
+			}
 		}
 		return fmt.Errorf("entity with ID %s not found in room", entityID)
 	}
@@ -181,4 +190,20 @@ func RemovePlaceable(room *entities.Room, entity entities.Placeable) (bool, erro
 	}
 
 	return removeEntity(room, entity.GetID(), entity.GetCellType()), nil
+}
+
+// FindNPCByID finds an NPC in the room by ID
+// Returns a pointer to the NPC and its index, or nil and -1 if not found
+func FindNPCByID(room *entities.Room, npcID string) (*entities.NPC, int) {
+	if room == nil {
+		return nil, -1
+	}
+
+	for i := range room.NPCs {
+		if room.NPCs[i].ID == npcID {
+			return &room.NPCs[i], i
+		}
+	}
+
+	return nil, -1
 }

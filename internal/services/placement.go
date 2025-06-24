@@ -50,6 +50,14 @@ func PlaceEntity(room *entities.Room, entity entities.Placeable) error {
 		if item, ok := entity.(*entities.Item); ok {
 			room.Items = append(room.Items, *item)
 		}
+	case entities.CellNPC:
+		if npc, ok := entity.(*entities.NPC); ok {
+			room.NPCs = append(room.NPCs, *npc)
+		}
+	case entities.CellObstacle:
+		if obstacle, ok := entity.(*entities.Obstacle); ok {
+			room.Obstacles = append(room.Obstacles, *obstacle)
+		}
 	}
 
 	// If this is a gridless room, we're done
@@ -126,6 +134,40 @@ func removeEntity(room *entities.Room, entityID string, cellType entities.CellTy
 
 				// Remove item from slice
 				room.Items = append(room.Items[:i], room.Items[i+1:]...)
+				return true
+			}
+		}
+	case entities.CellNPC:
+		for i, npc := range room.NPCs {
+			if npc.ID == entityID {
+				// Clear grid cell if grid exists
+				if room.Grid != nil {
+					pos := npc.Position
+					room.Grid[pos.Y][pos.X] = entities.Cell{
+						Type:     entities.CellTypeEmpty,
+						EntityID: "",
+					}
+				}
+
+				// Remove NPC from slice
+				room.NPCs = append(room.NPCs[:i], room.NPCs[i+1:]...)
+				return true
+			}
+		}
+	case entities.CellObstacle:
+		for i, obstacle := range room.Obstacles {
+			if obstacle.ID == entityID {
+				// Clear grid cell if grid exists
+				if room.Grid != nil {
+					pos := obstacle.Position
+					room.Grid[pos.Y][pos.X] = entities.Cell{
+						Type:     entities.CellTypeEmpty,
+						EntityID: "",
+					}
+				}
+
+				// Remove obstacle from slice
+				room.Obstacles = append(room.Obstacles[:i], room.Obstacles[i+1:]...)
 				return true
 			}
 		}
