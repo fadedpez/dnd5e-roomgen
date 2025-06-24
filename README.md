@@ -360,7 +360,100 @@ _, notRemoved, err = roomService.CleanupRoom(room, entities.CellPlayer, playerID
 if err != nil {
     // Handle error
 }
+
+// Full room cleanup - remove all entities of all types
+// This is useful when transitioning to a new room or resetting a room
+entityTypes := []entities.CellType{
+    entities.CellMonster,
+    entities.CellNPC,
+    entities.CellObstacle,
+    entities.CellItem,
+    // Note: You might want to handle players separately
+}
+
+totalXP := 0
+for _, entityType := range entityTypes {
+    xp, _, err := roomService.CleanupRoom(room, entityType, []string{})
+    if err != nil {
+        // Handle error
+    }
+    totalXP += xp
+}
+fmt.Printf("Total XP gained from cleanup: %d\n", totalXP)
 ```
+
+### Working with NPC Inventories
+
+NPCs in the library can have inventories, making them useful as merchants, traders, or quest-givers:
+
+```go
+// Create an NPC with inventory items
+npcConfig := services.NPCConfig{
+    Name:        "Merchant",
+    Level:       3,
+    RandomPlace: true,
+}
+
+// Add the NPC to the room
+placeables := []services.PlaceableConfig{npcConfig}
+err := roomService.AddPlaceablesToRoom(room, placeables)
+if err != nil {
+    // Handle error
+}
+
+// Get the created NPC from the room
+merchant := room.NPCs[0]
+
+// Create items to add to the merchant's inventory
+potion := entities.Item{
+    ID:    "item-uuid-1",
+    Name:  "Health Potion",
+    Key:   "item_potion_health",
+    Value: 50,
+}
+
+sword := entities.Item{
+    ID:    "item-uuid-2",
+    Name:  "Magic Sword",
+    Key:   "item_sword_magic",
+    Value: 500,
+}
+
+// Add items to the merchant's inventory
+merchant.AddItemToInventory(potion)
+merchant.AddItemToInventory(sword)
+
+// View the merchant's inventory
+inventory := merchant.GetInventory()
+fmt.Printf("Merchant has %d items for sale\n", len(inventory))
+for _, item := range inventory {
+    fmt.Printf("- %s: %d gold\n", item.Name, item.Value)
+}
+
+// Player buys an item from the merchant
+boughtItem, success := merchant.RemoveItemFromInventory("item-uuid-1")
+if success {
+    fmt.Printf("Bought %s for %d gold\n", boughtItem.Name, boughtItem.Value)
+    
+    // Add the item to the room (e.g., player picks it up)
+    room.Items = append(room.Items, boughtItem)
+    
+    // Or add it directly to a player's inventory if you have a player struct with inventory
+    // player.AddItemToInventory(boughtItem)
+} else {
+    fmt.Println("Item not found in merchant's inventory")
+}
+
+// Check updated inventory
+inventory = merchant.GetInventory()
+fmt.Printf("Merchant now has %d items for sale\n", len(inventory))
+```
+
+This inventory system allows for implementing:
+- Shops and merchants with items for sale
+- NPCs that can give or receive items as part of quests
+- Loot that can be transferred between entities
+- Trading systems between players and NPCs
 
 ## Contributing
 
