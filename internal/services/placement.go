@@ -1,8 +1,10 @@
-package entities
+package services
 
 import (
 	"errors"
 	"math/rand"
+
+	"github.com/fadedpez/dnd5e-roomgen/internal/entities"
 )
 
 // Error constants for placement operations
@@ -13,23 +15,39 @@ var (
 // PlaceEntity adds a placeable entity to a room at its current position
 // If the position is invalid or the cell is occupied, returns an error
 // For gridless rooms (room.Grid == nil), position validation is skipped
-func PlaceEntity(room *Room, entity Placeable) error {
+func PlaceEntity(room *entities.Room, entity entities.Placeable) error {
 	if room == nil {
-		return ErrNilRoom
+		return entities.ErrNilRoom
+	}
+
+	// For rooms with a grid, validate position before adding to slices
+	if room.Grid != nil {
+		pos := entity.GetPosition()
+
+		// Check if position is within room boundaries
+		if pos.X < 0 || pos.X >= room.Width ||
+			pos.Y < 0 || pos.Y >= room.Height {
+			return entities.ErrInvalidPosition
+		}
+
+		// Check if cell is already occupied
+		if room.Grid[pos.Y][pos.X].Type != entities.CellTypeEmpty {
+			return entities.ErrCellOccupied
+		}
 	}
 
 	// Add entity to the appropriate slice based on its type
 	switch entity.GetCellType() {
-	case CellMonster:
-		if monster, ok := entity.(*Monster); ok {
+	case entities.CellMonster:
+		if monster, ok := entity.(*entities.Monster); ok {
 			room.Monsters = append(room.Monsters, *monster)
 		}
-	case CellPlayer:
-		if player, ok := entity.(*Player); ok {
+	case entities.CellPlayer:
+		if player, ok := entity.(*entities.Player); ok {
 			room.Players = append(room.Players, *player)
 		}
-	case CellItem:
-		if item, ok := entity.(*Item); ok {
+	case entities.CellItem:
+		if item, ok := entity.(*entities.Item); ok {
 			room.Items = append(room.Items, *item)
 		}
 	}
@@ -41,19 +59,8 @@ func PlaceEntity(room *Room, entity Placeable) error {
 
 	pos := entity.GetPosition()
 
-	// Check if position is within room boundaries
-	if pos.X < 0 || pos.X >= room.Width ||
-		pos.Y < 0 || pos.Y >= room.Height {
-		return ErrInvalidPosition
-	}
-
-	// Check if cell is already occupied
-	if room.Grid[pos.Y][pos.X].Type != CellTypeEmpty {
-		return ErrCellOccupied
-	}
-
 	// Update grid
-	room.Grid[pos.Y][pos.X] = Cell{
+	room.Grid[pos.Y][pos.X] = entities.Cell{
 		Type:     entity.GetCellType(),
 		EntityID: entity.GetID(),
 	}
@@ -61,24 +68,24 @@ func PlaceEntity(room *Room, entity Placeable) error {
 	return nil
 }
 
-// RemoveEntity removes a placeable entity from a room by ID and cell type
+// removeEntity removes a placeable entity from a room by ID and cell type
 // Returns true if the entity was found and removed, false otherwise
 // For gridless rooms (room.Grid == nil), grid updates are skipped
-func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
+func removeEntity(room *entities.Room, entityID string, cellType entities.CellType) bool {
 	if room == nil {
 		return false
 	}
 
 	// Find and remove the entity based on its type
 	switch cellType {
-	case CellMonster:
+	case entities.CellMonster:
 		for i, monster := range room.Monsters {
 			if monster.ID == entityID {
 				// Clear grid cell if grid exists
 				if room.Grid != nil {
 					pos := monster.Position
-					room.Grid[pos.Y][pos.X] = Cell{
-						Type:     CellTypeEmpty,
+					room.Grid[pos.Y][pos.X] = entities.Cell{
+						Type:     entities.CellTypeEmpty,
 						EntityID: "",
 					}
 				}
@@ -88,14 +95,14 @@ func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 				return true
 			}
 		}
-	case CellPlayer:
+	case entities.CellPlayer:
 		for i, player := range room.Players {
 			if player.ID == entityID {
 				// Clear grid cell if grid exists
 				if room.Grid != nil {
 					pos := player.Position
-					room.Grid[pos.Y][pos.X] = Cell{
-						Type:     CellTypeEmpty,
+					room.Grid[pos.Y][pos.X] = entities.Cell{
+						Type:     entities.CellTypeEmpty,
 						EntityID: "",
 					}
 				}
@@ -105,14 +112,14 @@ func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 				return true
 			}
 		}
-	case CellItem:
+	case entities.CellItem:
 		for i, item := range room.Items {
 			if item.ID == entityID {
 				// Clear grid cell if grid exists
 				if room.Grid != nil {
 					pos := item.Position
-					room.Grid[pos.Y][pos.X] = Cell{
-						Type:     CellTypeEmpty,
+					room.Grid[pos.Y][pos.X] = entities.Cell{
+						Type:     entities.CellTypeEmpty,
 						EntityID: "",
 					}
 				}
@@ -130,31 +137,31 @@ func RemoveEntity(room *Room, entityID string, cellType CellType) bool {
 // FindEmptyPosition finds an empty position in the room
 // Returns the position and nil error if successful, or an error if no empty position is found
 // For gridless rooms (room.Grid == nil), returns a random position within room dimensions
-func FindEmptyPosition(room *Room) (Position, error) {
+func FindEmptyPosition(room *entities.Room) (entities.Position, error) {
 	if room == nil {
-		return Position{}, ErrNilRoom
+		return entities.Position{}, entities.ErrNilRoom
 	}
 
 	// For gridless rooms, return a random position within room dimensions
 	if room.Grid == nil {
-		return Position{
+		return entities.Position{
 			X: rand.Intn(room.Width),
 			Y: rand.Intn(room.Height),
 		}, nil
 	}
 
 	// Try to find an empty position
-	emptyCells := []Position{}
+	emptyCells := []entities.Position{}
 	for y := 0; y < room.Height; y++ {
 		for x := 0; x < room.Width; x++ {
-			if room.Grid[y][x].Type == CellTypeEmpty {
-				emptyCells = append(emptyCells, Position{X: x, Y: y})
+			if room.Grid[y][x].Type == entities.CellTypeEmpty {
+				emptyCells = append(emptyCells, entities.Position{X: x, Y: y})
 			}
 		}
 	}
 
 	if len(emptyCells) == 0 {
-		return Position{}, ErrNoEmptyPositions
+		return entities.Position{}, ErrNoEmptyPositions
 	}
 
 	// Return a random empty position

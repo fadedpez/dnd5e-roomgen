@@ -13,6 +13,8 @@ A Go library for generating dynamic rooms for Dungeons & Dragons 5th Edition adv
 - Support for gridless rooms when spatial positioning is not needed
 - Flexible service layer for easy integration with applications
 - Support for encounter balancing based on party composition
+- Prioritized entity placement (players first, then monsters, then items)
+- Graceful handling of placement failures
 
 ## Installation
 
@@ -25,7 +27,7 @@ go get github.com/fadedpez/dnd5e-roomgen
 The library follows a clean layered architecture:
 
 - **Entities Layer**: Core domain objects like Room, Monster, Player, Position, etc.
-- **Services Layer**: Business logic for room generation, entity placement, and encounter balancing
+- **Services Layer**: Business logic for room generation, entity placement, encounter balancing, and room utilities
 - **Repository Layer**: Data access for monsters, treasure, and other external resources
 
 ## Basic Usage
@@ -104,16 +106,159 @@ if err != nil {
 // - Positions can be used for visual representation if needed
 ```
 
-In both cases, the same entity placement interface is used, making your code consistent regardless of the room type:
+### Adding Entities to a Room
+
+The library provides a unified approach to adding entities to a room through the `AddPlaceablesToRoom` method:
 
 ```go
-// These methods work the same for both grid-based and gridless rooms
+// Create configurations for different entity types
+monsterConfigs := []services.MonsterConfig{...}
+playerConfigs := []services.PlayerConfig{...}
+itemConfigs := []services.ItemConfig{...}
+
+// Convert to generic PlaceableConfig interface
+var placeables []services.PlaceableConfig
+for _, config := range monsterConfigs {
+    placeables = append(placeables, config)
+}
+for _, config := range playerConfigs {
+    placeables = append(placeables, config)
+}
+for _, config := range itemConfigs {
+    placeables = append(placeables, config)
+}
+
+// Add all entities to the room with prioritized placement
+// Players will be placed first, then monsters, then items
+err := roomService.AddPlaceablesToRoom(room, placeables)
+if err != nil {
+    // Handle error - only occurs if player placement fails
+    // Monster and item placement failures are handled gracefully
+}
+```
+
+You can also use the type-specific convenience methods:
+
+```go
+// These methods use AddPlaceablesToRoom internally
 err = roomService.AddMonstersToRoom(room, monsterConfigs)
 err = roomService.AddPlayersToRoom(room, playerConfigs)
 err = roomService.AddItemsToRoom(room, itemConfigs)
 ```
 
-### Adding Monsters to a Room
+### Generating and Populating a Room in One Step
+
+The `GenerateAndPopulateRoom` method provides a comprehensive way to create and populate a room with multiple entity types in a single call, with optional encounter balancing:
+
+```go
+// Configure room
+roomConfig := services.RoomConfig{
+    Width:       15,
+    Height:      10,
+    LightLevel:  entities.LightLevelDim,
+    Description: "A dimly lit chamber with ancient runes on the walls",
+    UseGrid:     true,
+}
+
+// All entity configurations are optional, but at least one type must be provided
+// If you don't need a particular entity type, pass an empty slice or nil
+
+// Optional: Configure monsters
+monsterConfigs := []services.MonsterConfig{
+    {
+        Name:        "Goblin",
+        Key:         "monster_goblin",
+        CR:          0.25,
+        Count:       3,
+        RandomPlace: true,
+    },
+    {
+        Name:        "Bugbear",
+        Key:         "monster_bugbear",
+        CR:          1.0,
+        Count:       1,
+        RandomPlace: false,
+        Position:    &entities.Position{X: 7, Y: 5},
+    },
+}
+
+// Optional: Configure players
+playerConfigs := []services.PlayerConfig{
+    {
+        Name:        "Aragorn",
+        Level:       5,
+        RandomPlace: true,
+    },
+    {
+        Name:        "Gandalf",
+        Level:       10,
+        RandomPlace: false,
+        Position:    &entities.Position{X: 2, Y: 2},
+    },
+}
+
+// Optional: Configure items
+itemConfigs := []services.ItemConfig{
+    {
+        Name:        "Healing Potion",
+        Key:         "item_potion_healing",
+        Value:       50,
+        Count:       2,
+        RandomPlace: true,
+    },
+    {
+        Name:        "Magic Sword",
+        Key:         "item_sword_magic",
+        Value:       500,
+        Count:       1,
+        RandomPlace: false,
+        Position:    &entities.Position{X: 12, Y: 8},
+    },
+}
+
+// Optional: Provide party for automatic encounter balancing
+party := &entities.Party{
+    Members: []entities.PartyMember{
+        {Name: "Aragorn", Level: 5},
+        {Name: "Legolas", Level: 4},
+        {Name: "Gimli", Level: 5},
+    },
+}
+
+// Optional: Specify encounter difficulty (defaults to Medium if not provided)
+difficulty := entities.EncounterDifficultyHard
+
+// Generate and populate room in one step with automatic balancing
+// IMPORTANT: At least one of monsterConfigs, playerConfigs, or itemConfigs must be non-empty
+room, err := roomService.GenerateAndPopulateRoom(
+    roomConfig,
+    monsterConfigs,  // Pass empty slice ([]services.MonsterConfig{}) if not needed
+    playerConfigs,   // Pass empty slice ([]services.PlayerConfig{}) if not needed
+    itemConfigs,     // Pass empty slice ([]services.ItemConfig{}) if not needed
+    party,           // Pass nil if no balancing is needed
+    difficulty,      // Only used if party is provided
+)
+if err != nil {
+    // Handle error
+}
+
+// Access room properties
+fmt.Printf("Room: %dx%d, %s\n", room.Width, room.Height, room.Description)
+fmt.Printf("Light level: %s\n", room.LightLevel)
+
+// Access entity properties
+fmt.Printf("Players: %d\n", len(room.Players))
+fmt.Printf("Monsters: %d\n", len(room.Monsters))
+fmt.Printf("Items: %d\n", len(room.Items))
+```
+
+This method handles several tasks in one operation:
+1. Creates a new room based on the provided configuration
+2. Optionally balances monster selection based on party and difficulty
+3. Places entities in the room with proper prioritization
+4. Handles placement failures gracefully
+
+### Monster Configuration Examples
 
 ```go
 // Configure monsters
@@ -134,15 +279,9 @@ monsterConfigs := []services.MonsterConfig{
         Position:    &entities.Position{X: 7, Y: 5},
     },
 }
-
-// Add monsters to the room
-err = roomService.AddMonstersToRoom(room, monsterConfigs)
-if err != nil {
-    // Handle error
-}
 ```
 
-### Adding Players to a Room
+### Player Configuration Examples
 
 ```go
 // Configure players
@@ -160,36 +299,10 @@ playerConfigs := []services.PlayerConfig{
     },
 }
 
-// Add players to the room
-err = roomService.AddPlayersToRoom(room, playerConfigs)
-if err != nil {
-    // Handle error
-}
-
 // Access player properties
 for i, player := range room.Players {
     fmt.Printf("Player %d: %s (Level %d) at position (%d,%d)\n",
         i+1, player.Name, player.Level, player.Position.X, player.Position.Y)
-}
-```
-
-### Generating a Room with Monsters in One Step
-
-```go
-// Generate a room and add monsters in one step
-room, err := roomService.PopulateRoomWithMonsters(roomConfig, monsterConfigs)
-if err != nil {
-    // Handle error
-}
-
-// Access room properties
-fmt.Printf("Room: %dx%d, %s\n", room.Width, room.Height, room.Description)
-fmt.Printf("Light level: %s\n", room.LightLevel)
-
-// Access monster properties
-for i, monster := range room.Monsters {
-    fmt.Printf("Monster %d: %s (CR %.2f) at position (%d,%d)\n",
-        i+1, monster.Name, monster.CR, monster.Position.X, monster.Position.Y)
 }
 ```
 
@@ -290,665 +403,85 @@ if err != nil {
 }
 ```
 
-### Removing Players from a Room
-
-```go
-// Remove a player by ID
-removed, err := entities.RemovePlayer(room, playerID)
-if err != nil {
-    // Handle error
-}
-
-if removed {
-    fmt.Println("Player successfully removed")
-} else {
-    fmt.Println("Player not found")
-}
-```
-
-### Cleaning Up a Room and Calculating XP
-
-```go
-// Clean up a room (remove monsters) and calculate XP
-totalXP, notRemovedIDs, err := roomService.CleanupRoom(room, []string{})  // Empty slice removes all monsters
-if err != nil {
-    // Handle error
-}
-
-fmt.Printf("Total XP earned: %d\n", totalXP)
-```
-
-### API Integration
-
-For detailed information on integrating with the DnD 5e API, including:
-
-- Converting API entities to room service configurations
-- Using the encounter balancer with API monsters
-- Player and item configuration with API integration
-- Generating treasure rooms with API monsters
-- Best practices for API integration
-
-Please see the [API Integration Guide](docs/API_INTEGRATION.md).
-
-### Using the Monster Repository
-
-For local testing and non-API usage:
-
-```go
-import (
-    "github.com/fadedpez/dnd5e-roomgen/internal/repositories"
-)
-
-// Create a test monster repository for unit testing
-testRepo := &repositories.TestMonsterRepository{
-    xpValues: map[string]int{
-        "monster_goblin": 50,
-        "monster_orc": 100,
-    },
-}
-
-// Use the test repository in your service
-roomService := services.NewRoomService(services.WithMonsterRepository(testRepo))
-```
-
-For API integration, see the [API Integration Guide](docs/API_INTEGRATION.md).
-
-### Using the Encounter Balancer
-
-The library includes a powerful encounter balancing system that helps create appropriately challenging encounters based on party composition and desired difficulty level.
-
-For detailed examples of using the encounter balancer with the DnD 5e API, see the [API Integration Guide](docs/API_INTEGRATION.md).
-
-#### Integrated Room Service Balancing
-
-For most use cases, you can use the RoomService's integrated balancing methods:
-
-```go
-import (
-    "github.com/fadedpez/dnd5e-roomgen/internal/entities"
-    "github.com/fadedpez/dnd5e-roomgen/internal/services"
-)
-
-// Create a room service (automatically initializes the balancer)
-roomService, err := services.NewRoomService()
-if err != nil {
-    // Handle error
-}
-
-// Create a party
-party := entities.Party{
-    Members: []entities.PartyMember{
-        {Name: "Aragorn", Level: 5},
-        {Name: "Legolas", Level: 5},
-        {Name: "Gimli", Level: 5},
-        {Name: "Gandalf", Level: 7},
-    },
-}
-
-// Define monster configurations
-monsterConfigs := []services.MonsterConfig{
-    {
-        Name:        "Goblin",
-        Key:         "monster_goblin",
-        CR:          0.25,
-        Count:       4,
-        RandomPlace: true,
-    },
-    {
-        Name:        "Bugbear",
-        Key:         "monster_bugbear",
-        CR:          1.0,
-        Count:       1,
-        RandomPlace: true,
-    },
-}
-
-// Method 1: Balance monster configurations without creating a room
-balancedConfigs, err := roomService.BalanceMonsterConfigs(monsterConfigs, party, entities.EncounterDifficultyHard)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Adjusted monster counts for hard difficulty: %+v\n", balancedConfigs)
-
-// Method 2: Generate a room with automatically balanced monsters in one step
-room, err := roomService.PopulateRoomWithBalancedMonsters(roomConfig, monsterConfigs, party, entities.EncounterDifficultyHard)
-if err != nil {
-    // Handle error
-}
-```
-
-#### Balancer Use Cases
-
-1. **Creating Balanced Encounters**:
-   - Calculate appropriate challenge ratings for your party
-   - Automatically adjust monster counts to match desired difficulty
-
-2. **Analyzing Encounter Difficulty**:
-   - Determine if an existing encounter is Easy, Medium, Hard, or Deadly
-   - Validate encounter designs against party composition
-
-3. **Dynamic Encounter Scaling**:
-   - Scale encounters up or down based on party size and level
-   - Maintain appropriate challenge as party composition changes
-
-4. **Difficulty Customization**:
-   - Choose from standard D&D 5e difficulty levels (Easy, Medium, Hard, Deadly)
-   - Apply consistent difficulty calculations across your application
-
-5. **One-Step Room Generation with Balanced Encounters**:
-   - Generate complete rooms with monsters balanced for your party
-   - Streamline encounter creation while maintaining appropriate challenge
-
 ## Advanced Features
 
-### Gridless Rooms
+### Encounter Balancing
 
-The library supports gridless rooms for applications that don't need spatial positioning or distance calculations:
-
-```go
-// Configure a gridless room
-roomConfig := services.RoomConfig{
-    Width:       15,
-    Height:      10,
-    LightLevel:  entities.LightLevelDim,
-    Description: "A dimly lit dungeon chamber",
-    UseGrid:     false,  // Disable grid for this room
-}
-
-// Generate the gridless room
-room, err := roomService.GenerateRoom(roomConfig)
-if err != nil {
-    // Handle error
-}
-
-// Add entities to the gridless room
-// Entities will still have positions assigned but no grid validation will occur
-err = roomService.AddMonstersToRoom(room, monsterConfigs)
-if err != nil {
-    // Handle error
-}
-
-// The placement interface handles gridless rooms automatically
-// No need for special configuration in entity addition methods
-```
-
-When using gridless rooms:
-
-1. Entities are still added to their respective slices (`Monsters`, `Players`, `Items`)
-2. Positions are still assigned but not validated against a grid
-3. No grid cell occupancy tracking occurs
-4. The `FindEmptyPosition` function returns random positions within room bounds
-5. All placement interface methods work seamlessly with both grid and gridless rooms
-
-Gridless rooms are useful for:
-- Applications that only need to track entity existence, not positions
-- Scenarios where distance calculations are not needed
-- Simplified room management without spatial constraints
-- Improved performance for large rooms with many entities
-
-## Customization and Advanced Configuration
-
-The DnD 5e Room Generator library is designed to be flexible and extensible. This section covers how to customize the library for your specific needs.
-
-### Custom Configuration Options
-
-#### Complete RoomConfig Options
-
-The `RoomConfig` struct provides several options for customizing room generation:
+The library includes built-in encounter balancing based on party composition and desired difficulty:
 
 ```go
-roomConfig := services.RoomConfig{
-    Width:       15,              // Width of the room in grid units
-    Height:      10,              // Height of the room in grid units
-    LightLevel:  entities.LightLevelDim, // Light level: LightLevelBright, LightLevelDim, or LightLevelDark
-    Description: "A dusty chamber with cobwebs in the corners", // Optional room description
-    RoomType:    "dungeon",       // Optional room type for categorization
-    UseGrid:     true,            // Whether to use a grid for spatial tracking
-}
-```
-
-#### Complete MonsterConfig Options
-
-The `MonsterConfig` struct allows detailed configuration of monsters:
-
-```go
-monsterConfigs := []services.MonsterConfig{
-    {
-        Name:        "Goblin",    // Display name of the monster
-        Key:         "monster_goblin", // API key for the monster (for XP calculation)
-        CR:          0.25,        // Challenge Rating
-        Count:       3,           // Number of this monster to place
-        RandomPlace: true,        // Whether to place randomly or at a specific position
-        Position:    nil,         // Position is nil for random placement
-    },
-    {
-        Name:        "Dragon",
-        Key:         "monster_adult_red_dragon",
-        CR:          17.0,
-        Count:       1,
-        RandomPlace: false,       // Fixed position placement
-        Position:    &entities.Position{X: 7, Y: 5}, // Specific position
-    },
-}
-```
-
-#### Complete PlayerConfig Options
-
-The `PlayerConfig` struct configures player characters:
-
-```go
-playerConfigs := []services.PlayerConfig{
-    {
-        Name:        "Aragorn",   // Player character name
-        Level:       5,           // Character level (used for encounter balancing)
-        RandomPlace: true,        // Whether to place randomly
-        Position:    nil,         // Position is nil for random placement
-    },
-    {
-        Name:        "Gandalf",
-        Level:       10,
-        RandomPlace: false,
-        Position:    &entities.Position{X: 2, Y: 2}, // Specific position
-    },
-}
-```
-
-#### Complete ItemConfig Options
-
-The `ItemConfig` struct configures items and treasures:
-
-```go
-itemConfigs := []services.ItemConfig{
-    {
-        Name:        "Healing Potion", // Item name
-        Key:         "item_healing_potion", // API key for the item
-        Value:       50,           // Gold piece value
-        Count:       2,            // Number of this item to place
-        RandomPlace: true,         // Whether to place randomly
-        Position:    nil,          // Position is nil for random placement
-    },
-    {
-        Name:        "Magic Sword",
-        Key:         "item_magic_sword",
-        Value:       500,
-        Count:       1,
-        RandomPlace: false,
-        Position:    &entities.Position{X: 7, Y: 7}, // Specific position
-    },
-}
-```
-
-### Extending the Library
-
-#### Creating Custom Repositories
-
-You can implement custom repositories by implementing the repository interfaces:
-
-```go
-// Custom monster repository
-type CustomMonsterRepository struct {
-    // Your custom fields here
-}
-
-// Implement the MonsterRepository interface
-func (r *CustomMonsterRepository) GetMonsterXP(key string) (int, error) {
-    // Your custom implementation
-    return 100, nil
-}
-
-// Use your custom repository with the room service
-roomService := services.NewRoomService(WithMonsterRepository(&CustomMonsterRepository{}))
-```
-
-#### Custom Encounter Balancing
-
-You can implement custom encounter balancing by implementing the `EncounterBalancer` interface:
-
-```go
-// Custom encounter balancer
-type CustomBalancer struct {
-    // Your custom fields here
-}
-
-// Implement the EncounterBalancer interface
-func (b *CustomBalancer) AdjustMonsterSelection(configs []services.MonsterConfig, party entities.Party, difficulty entities.EncounterDifficulty) ([]services.MonsterConfig, error) {
-    // Your custom implementation
-    return configs, nil
-}
-
-func (b *CustomBalancer) DetermineEncounterDifficulty(monsters []entities.Monster, party entities.Party) (entities.EncounterDifficulty, error) {
-    // Your custom implementation
-    return entities.EncounterDifficultyMedium, nil
-}
-
-func (b *CustomBalancer) CalculateTargetCR(party entities.Party, difficulty entities.EncounterDifficulty) (float64, error) {
-    // Your custom implementation
-    return 5.0, nil
-}
-
-// Use your custom balancer with the room service
-roomService := services.NewRoomService(WithEncounterBalancer(&CustomBalancer{}))
-```
-
-### Advanced Room Service Configuration
-
-The `NewRoomService` function accepts functional options for advanced configuration:
-
-```go
-// Create a room service with custom options
-roomService, err := services.NewRoomService(
-    // Custom monster repository
-    services.WithMonsterRepository(customMonsterRepo),
-    
-    // Custom item repository
-    services.WithItemRepository(customItemRepo),
-    
-    // Custom encounter balancer
-    services.WithEncounterBalancer(customBalancer),
-    
-    // Custom random source for deterministic testing
-    services.WithRandomSource(rand.New(rand.NewSource(42))),
-)
-```
-
-### Integration with External Systems
-
-#### Using with a Web Framework
-
-```go
-// Example using the library with a web framework (e.g., Gin)
-func handleGenerateRoom(c *gin.Context) {
-    // Parse request
-    var req struct {
-        Width      int    `json:"width"`
-        Height     int    `json:"height"`
-        LightLevel string `json:"lightLevel"`
-        UseGrid    bool   `json:"useGrid"`
-    }
-    if err := c.BindJSON(&req); err != nil {
-        c.JSON(400, gin.H{"error": err.Error()})
-        return
-    }
-    
-    // Create room config
-    roomConfig := services.RoomConfig{
-        Width:      req.Width,
-        Height:     req.Height,
-        LightLevel: entities.LightLevel(req.LightLevel),
-        UseGrid:    req.UseGrid,
-    }
-    
-    // Generate room
-    roomService, _ := services.NewRoomService()
-    room, err := roomService.GenerateRoom(roomConfig)
-    if err != nil {
-        c.JSON(500, gin.H{"error": err.Error()})
-        return
-    }
-    
-    // Return room data
-    c.JSON(200, room)
-}
-```
-
-#### Using with a Game Engine
-
-```go
-// Example using the library with a game engine
-func createGameRoom(engine GameEngine, width, height int, lightLevel string) {
-    // Create room config
-    roomConfig := services.RoomConfig{
-        Width:      width,
-        Height:     height,
-        LightLevel: entities.LightLevel(lightLevel),
-        UseGrid:    true,
-    }
-    
-    // Generate room with monsters
-    roomService, _ := services.NewRoomService()
-    monsterConfigs := []services.MonsterConfig{
-        {Name: "Goblin", CR: 0.25, Count: 3, RandomPlace: true},
-        {Name: "Orc", CR: 0.5, Count: 2, RandomPlace: true},
-    }
-    
-    room, _ := roomService.PopulateRoomWithMonsters(roomConfig, monsterConfigs)
-    
-    // Convert to game engine entities
-    gameRoom := engine.CreateRoom(room.Width, room.Height)
-    for _, monster := range room.Monsters {
-        gameMonster := engine.CreateMonster(monster.Name)
-        engine.PlaceEntity(gameMonster, monster.Position.X, monster.Position.Y)
-    }
-    
-    // Set lighting based on room's light level
-    switch room.LightLevel {
-    case entities.LightLevelBright:
-        engine.SetLighting(1.0)
-    case entities.LightLevelDim:
-        engine.SetLighting(0.5)
-    case entities.LightLevelDark:
-        engine.SetLighting(0.1)
-    }
-}
-```
-
-### Performance Optimization
-
-For large rooms or applications with many entities, consider these optimization strategies:
-
-1. **Use gridless rooms** when spatial positioning is not critical
-2. **Batch entity additions** rather than adding entities one by one
-3. **Implement custom repositories** with caching for frequently accessed data
-4. **Use efficient data structures** for custom implementations
-
-```go
-// Example of batch entity addition for better performance
-func addManyMonstersEfficiently(room *entities.Room, monsterCount int) {
-    // Create all configs at once
-    configs := make([]services.MonsterConfig, monsterCount)
-    for i := 0; i < monsterCount; i++ {
-        configs[i] = services.MonsterConfig{
-            Name:        fmt.Sprintf("Monster%d", i),
-            CR:          0.25,
-            Count:       1,
-            RandomPlace: true,
-        }
-    }
-    
-    // Add all monsters in a single call
-    roomService, _ := services.NewRoomService()
-    roomService.AddMonstersToRoom(room, configs)
-}
-```
-
-## Design Decisions
-
-- The library follows a clean layered architecture with clear separation of concerns
-- Repository interfaces allow for easy mocking and testing
-- The service layer depends on interfaces, not concrete implementations
-- External API dependencies are isolated in the repository layer
-
-## Future Improvements
-
-The following improvements are planned for future releases:
-
-1. **API Data Validation** - Update mock repositories in tests to use real API data to validate API contracts and ensure compatibility with the actual D&D 5e API.
-
-2. **Enhanced Error Handling** - Implement more specific error types for different failure scenarios to help consumers of the library better handle errors.
-
-3. **Additional Room Types** - Support for specialized room types like traps, puzzles, and environmental hazards.
-
-4. **Advanced Encounter Balancing** - More sophisticated algorithms for balancing encounters based on party composition and monster synergies.
-
-The current implementation is an MVP focused on room generation and monster placement. Future enhancements planned for the library include:
-
-### Features
-- Traps and hazard system
-- Advanced room types (circular, irregular, multi-room layouts)
-- Enhanced customization parameters
-- Support for connected areas/complexes
-- Additional environmental effects
-- Item integration and placement
-- Advanced monster selection algorithms
-
-### Technical Improvements
-- Caching system for frequently used monsters
-- Enhanced error handling with user notifications
-- Fallback mechanisms for API failures
-- Performance optimizations for large room complexes
-
-### Architecture Evolution
-- Configuration system for library-wide settings
-- Event system for room generation lifecycle hooks
-- Extensibility points for custom generation algorithms
-
-These enhancements will be prioritized based on user feedback and needs after the MVP has been tested in real applications.
-
-### Using the Encounter Balancer
-
-The library includes a powerful encounter balancing system that helps create appropriately challenging encounters based on party composition and desired difficulty level.
-
-#### Direct Balancer Usage
-
-You can use the balancer directly for fine-grained control:
-
-```go
-import (
-    "github.com/fadedpez/dnd5e-roomgen/internal/entities"
-    "github.com/fadedpez/dnd5e-roomgen/internal/services"
-    "github.com/fadedpez/dnd5e-roomgen/internal/repositories"
-)
-
-// Create a monster repository
-monsterRepo := repositories.NewAPIMonsterRepository()
-
-// Create a balancer
-balancer := services.NewBalancer(monsterRepo)
-
 // Create a party
 party := entities.Party{
     Members: []entities.PartyMember{
         {Name: "Aragorn", Level: 5},
-        {Name: "Legolas", Level: 5},
+        {Name: "Legolas", Level: 4},
         {Name: "Gimli", Level: 5},
-        {Name: "Gandalf", Level: 7},
     },
 }
 
-// Calculate target Challenge Rating for a medium difficulty encounter
-targetCR, err := balancer.CalculateTargetCR(party, entities.EncounterDifficultyMedium)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Target CR for medium encounter: %.2f\n", targetCR)
+// Specify difficulty level
+difficulty := entities.EncounterDifficultyHard
 
-// Determine the difficulty of an existing encounter
-monsters := []entities.Monster{
-    {Name: "Goblin", CR: 0.25},
-    {Name: "Goblin", CR: 0.25},
-    {Name: "Orc Chief", CR: 2.0},
-}
-difficulty, err := balancer.DetermineEncounterDifficulty(monsters, party)
+// Balance monsters for the party
+monsterConfigs, err := roomService.BalanceMonsters(monsterConfigs, party, difficulty)
 if err != nil {
     // Handle error
 }
-fmt.Printf("This encounter is %s for the current party\n", difficulty)
+
+// Or use GenerateAndPopulateRoom with party and difficulty for automatic balancing
+room, err := roomService.GenerateAndPopulateRoom(
+    roomConfig,
+    monsterConfigs,
+    playerConfigs,
+    itemConfigs,
+    &party,
+    difficulty,
+)
 ```
 
-#### Integrated Room Service Balancing
+### Placement Prioritization
 
-For most use cases, you can use the RoomService's integrated balancing methods:
+When adding multiple entity types to a room, the library prioritizes placement in the following order:
+
+1. Players (critical - will return error if placement fails)
+2. Monsters (non-critical - will log warning if placement fails)
+3. Items (non-critical - will log warning if placement fails)
+
+This ensures that players are always placed in the room, even if it means some monsters or items cannot be placed due to space constraints.
+
+### Moving Entities
+
+The library provides a way to move entities within a room after they've been placed:
 
 ```go
-import (
-    "github.com/fadedpez/dnd5e-roomgen/internal/entities"
-    "github.com/fadedpez/dnd5e-roomgen/internal/services"
-)
+// Get a reference to an entity
+player := room.Players[0]
+monster := room.Monsters[0]
+item := room.Items[0]
 
-// Create a room service (automatically initializes the balancer)
-roomService, err := services.NewRoomService()
+// Create a new position
+newPosition := entities.Position{X: 5, Y: 7}
+
+// Move the entity (works with any entity type that implements Placeable)
+err := roomService.MoveEntity(room, &player, newPosition)
 if err != nil {
-    // Handle error
+    // Handle error (position out of bounds, cell occupied, etc.)
 }
 
-// Create a party
-party := entities.Party{
-    Members: []entities.PartyMember{
-        {Name: "Aragorn", Level: 5},
-        {Name: "Legolas", Level: 5},
-        {Name: "Gimli", Level: 5},
-        {Name: "Gandalf", Level: 7},
-    },
-}
+// Move a monster
+err = roomService.MoveEntity(room, &monster, newPosition)
 
-// Define monster configurations
-monsterConfigs := []services.MonsterConfig{
-    {
-        Name:        "Goblin",
-        Key:         "monster_goblin",
-        CR:          0.25,
-        Count:       4,
-        RandomPlace: true,
-    },
-    {
-        Name:        "Bugbear",
-        Key:         "monster_bugbear",
-        CR:          1.0,
-        Count:       1,
-        RandomPlace: true,
-    },
-}
-
-// Method 1: Balance monster configurations without creating a room
-balancedConfigs, err := roomService.BalanceMonsterConfigs(monsterConfigs, party, entities.EncounterDifficultyHard)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Adjusted monster counts for hard difficulty: %+v\n", balancedConfigs)
-
-// Method 2: Generate a room with automatically balanced monsters in one step
-room, err := roomService.PopulateRoomWithBalancedMonsters(roomConfig, monsterConfigs, party, entities.EncounterDifficultyHard)
-if err != nil {
-    // Handle error
-}
-
-// Method 3: Analyze the difficulty of an existing room
-existingRoom := &entities.Room{
-    // ... room properties ...
-    Monsters: []entities.Monster{
-        {Name: "Dragon", CR: 10},
-        {Name: "Kobold", CR: 0.25, Count: 8},
-    },
-}
-difficulty, err := roomService.DetermineRoomDifficulty(existingRoom, party)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("This room's encounter is %s for the current party\n", difficulty)
+// Move an item
+err = roomService.MoveEntity(room, &item, newPosition)
 ```
 
-#### Balancer Use Cases
-
-1. **Creating Balanced Encounters**:
-   - Calculate appropriate challenge ratings for your party
-   - Automatically adjust monster counts to match desired difficulty
-
-2. **Analyzing Encounter Difficulty**:
-   - Determine if an existing encounter is Easy, Medium, Hard, or Deadly
-   - Validate encounter designs against party composition
-
-3. **Dynamic Encounter Scaling**:
-   - Scale encounters up or down based on party size and level
-   - Maintain appropriate challenge as party composition changes
-
-4. **Difficulty Customization**:
-   - Choose from standard D&D 5e difficulty levels (Easy, Medium, Hard, Deadly)
-   - Apply consistent difficulty calculations across your application
-
-5. **One-Step Room Generation with Balanced Encounters**:
-   - Generate complete rooms with monsters balanced for your party
-   - Streamline encounter creation while maintaining appropriate challenge
+The `MoveEntity` method:
+- Works with any entity type that implements the `Placeable` interface
+- Validates that the new position is within room bounds
+- Ensures the target cell is unoccupied
+- Updates both the entity's position and the room grid
+- Works with both grid-based and gridless rooms
 
 ## License
 
-None
+[MIT License](LICENSE)

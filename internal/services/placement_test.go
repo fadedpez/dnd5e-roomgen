@@ -1,4 +1,4 @@
-package entities
+package services
 
 import (
 	"testing"
@@ -184,7 +184,7 @@ func TestRemoveEntity(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			removed := RemoveEntity(room, tc.entityID, tc.cellType)
+			removed := removeEntity(room, tc.entityID, tc.cellType)
 			assert.Equal(t, tc.expectRemoved, removed)
 
 			if tc.expectRemoved {

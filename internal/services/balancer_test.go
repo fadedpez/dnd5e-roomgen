@@ -34,14 +34,7 @@ func createTestMonsters(crs ...float64) []entities.Monster {
 
 // createTestBalancer creates a balancer with a mock repository for testing
 func createTestBalancer() *StandardBalancer {
-	mockRepo := &MockMonsterRepository{
-		xpValues: map[string]int{
-			"monster_goblin": 50,
-			"monster_orc":    100,
-			"monster_troll":  450,
-		},
-	}
-	return NewBalancer(mockRepo)
+	return NewBalancer()
 }
 
 func TestCalculateTargetCR(t *testing.T) {
