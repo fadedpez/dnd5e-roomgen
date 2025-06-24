@@ -60,6 +60,87 @@ type ItemConfig struct {
 	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
 }
 
+// NPCConfig contains parameters for NPC placement
+type NPCConfig struct {
+	Name        string
+	Level       int                // Character level
+	Count       int                // Number of this NPC type to add
+	Inventory   []entities.Item    // Items in the NPC's inventory
+	RandomPlace bool               // Whether to place NPC randomly
+	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
+}
+
+// ObstacleConfig contains parameters for obstacle placement
+type ObstacleConfig struct {
+	Name        string             // Name of the obstacle
+	Key         string             // Key for identifying the obstacle type
+	Blocking    bool               // Whether the obstacle blocks movement
+	Count       int                // Number of this obstacle type to add
+	RandomPlace bool               // Whether to place obstacle randomly
+	Position    *entities.Position // Optional specific position (only used if RandomPlace is false)
+}
+
+// ShouldPlaceRandomly implements PlaceableConfig for NPCConfig
+func (c NPCConfig) ShouldPlaceRandomly() bool {
+	return c.RandomPlace
+}
+
+// GetPosition implements PlaceableConfig for NPCConfig
+func (c NPCConfig) GetPosition() *entities.Position {
+	return c.Position
+}
+
+// GetName implements PlaceableConfig for NPCConfig
+func (c NPCConfig) GetName() string {
+	return c.Name
+}
+
+// CreatePlaceable implements PlaceableConfig for NPCConfig
+func (c NPCConfig) CreatePlaceable(s *RoomService) (entities.Placeable, error) {
+	npc := &entities.NPC{
+		ID:        uuid.NewString(),
+		Name:      c.Name,
+		Inventory: c.Inventory,
+	}
+	return npc, nil
+}
+
+// GetCellType implements PlaceableConfig for NPCConfig
+func (c NPCConfig) GetCellType() entities.CellType {
+	return entities.CellNPC
+}
+
+// ShouldPlaceRandomly implements PlaceableConfig for ObstacleConfig
+func (c ObstacleConfig) ShouldPlaceRandomly() bool {
+	return c.RandomPlace
+}
+
+// GetPosition implements PlaceableConfig for ObstacleConfig
+func (c ObstacleConfig) GetPosition() *entities.Position {
+	return c.Position
+}
+
+// GetName implements PlaceableConfig for ObstacleConfig
+func (c ObstacleConfig) GetName() string {
+	return c.Name
+}
+
+// CreatePlaceable implements PlaceableConfig for ObstacleConfig
+func (c ObstacleConfig) CreatePlaceable(s *RoomService) (entities.Placeable, error) {
+	obstacle := &entities.Obstacle{
+		ID:       uuid.NewString(),
+		Name:     c.Name,
+		Key:      c.Key,
+		Blocking: c.Blocking,
+	}
+	return obstacle, nil
+}
+
+// GetCellType implements PlaceableConfig for ObstacleConfig
+func (c ObstacleConfig) GetCellType() entities.CellType {
+	return entities.CellObstacle
+}
+
 // PlaceableConfig defines the interface for any placeable entity configuration
 type PlaceableConfig interface {
 	// CreatePlaceable creates a new placeable entity from this configuration
@@ -74,12 +155,17 @@ type PlaceableConfig interface {
 
 	// GetName returns a display name for error messages
 	GetName() string
+
+	// GetCellType returns the cell type for the entity
+	GetCellType() entities.CellType
 }
 
 // Ensure our config types implement PlaceableConfig
 var _ PlaceableConfig = (*MonsterConfig)(nil)
 var _ PlaceableConfig = (*PlayerConfig)(nil)
 var _ PlaceableConfig = (*ItemConfig)(nil)
+var _ PlaceableConfig = (*NPCConfig)(nil)
+var _ PlaceableConfig = (*ObstacleConfig)(nil)
 
 // CreatePlaceable implements PlaceableConfig for MonsterConfig
 func (c MonsterConfig) CreatePlaceable(s *RoomService) (entities.Placeable, error) {
@@ -107,6 +193,11 @@ func (c MonsterConfig) GetName() string {
 	return c.Name
 }
 
+// GetCellType implements PlaceableConfig for MonsterConfig
+func (c MonsterConfig) GetCellType() entities.CellType {
+	return entities.CellMonster
+}
+
 // CreatePlaceable implements PlaceableConfig for PlayerConfig
 func (c PlayerConfig) CreatePlaceable(s *RoomService) (entities.Placeable, error) {
 	player := &entities.Player{
@@ -130,6 +221,11 @@ func (c PlayerConfig) GetPosition() *entities.Position {
 // GetName implements PlaceableConfig for PlayerConfig
 func (c PlayerConfig) GetName() string {
 	return c.Name
+}
+
+// GetCellType implements PlaceableConfig for PlayerConfig
+func (c PlayerConfig) GetCellType() entities.CellType {
+	return entities.CellPlayer
 }
 
 // CreatePlaceable implements PlaceableConfig for ItemConfig
@@ -158,6 +254,11 @@ func (c ItemConfig) GetName() string {
 	return c.Name
 }
 
+// GetCellType implements PlaceableConfig for ItemConfig
+func (c ItemConfig) GetCellType() entities.CellType {
+	return entities.CellItem
+}
+
 // AddPlaceablesToRoom adds any placeable entities to a room based on their configurations
 // Players will always be placed first. If the room becomes full, monsters and items may be discarded
 // with a warning message rather than causing an error.
@@ -174,6 +275,8 @@ func (s *RoomService) AddPlaceablesToRoom(room *entities.Room, configs []Placeab
 	playerConfigs := []PlaceableConfig{}
 	monsterConfigs := []PlaceableConfig{}
 	itemConfigs := []PlaceableConfig{}
+	npcConfigs := []PlaceableConfig{}
+	obstacleConfigs := []PlaceableConfig{}
 	otherConfigs := []PlaceableConfig{}
 
 	// First pass: categorize configs without creating entities
@@ -186,13 +289,19 @@ func (s *RoomService) AddPlaceablesToRoom(room *entities.Room, configs []Placeab
 			monsterConfigs = append(monsterConfigs, config)
 		case ItemConfig:
 			itemConfigs = append(itemConfigs, config)
+		case NPCConfig:
+			npcConfigs = append(npcConfigs, config)
+		case ObstacleConfig:
+			obstacleConfigs = append(obstacleConfigs, config)
 		default:
 			otherConfigs = append(otherConfigs, config)
 		}
 	}
 
-	// Combine in priority order: players, monsters, items, others
+	// Combine in priority order: players, monsters, NPCs, obstacles, items, others
 	prioritizedConfigs := append(playerConfigs, monsterConfigs...)
+	prioritizedConfigs = append(prioritizedConfigs, npcConfigs...)
+	prioritizedConfigs = append(prioritizedConfigs, obstacleConfigs...)
 	prioritizedConfigs = append(prioritizedConfigs, itemConfigs...)
 	prioritizedConfigs = append(prioritizedConfigs, otherConfigs...)
 
@@ -215,6 +324,10 @@ func (s *RoomService) AddPlaceablesToRoom(room *entities.Room, configs []Placeab
 			entityType = "monster"
 		case entities.CellItem:
 			entityType = "item"
+		case entities.CellNPC:
+			entityType = "npc"
+		case entities.CellObstacle:
+			entityType = "obstacle"
 		}
 
 		// Place entity either randomly or at a specific position
@@ -268,11 +381,13 @@ func (s *RoomService) GenerateAndPopulateRoom(
 	monsterConfigs []MonsterConfig,
 	playerConfigs []PlayerConfig,
 	itemConfigs []ItemConfig,
+	npcConfigs []NPCConfig,
+	obstacleConfigs []ObstacleConfig,
 	party *entities.Party,
 	difficulty entities.EncounterDifficulty,
 ) (*entities.Room, error) {
 	// Check that at least one entity type is provided
-	if len(monsterConfigs) == 0 && len(playerConfigs) == 0 && len(itemConfigs) == 0 {
+	if len(monsterConfigs) == 0 && len(playerConfigs) == 0 && len(itemConfigs) == 0 && len(npcConfigs) == 0 && len(obstacleConfigs) == 0 {
 		return nil, fmt.Errorf("at least one entity type (monster, player, or item) must be provided")
 	}
 
@@ -315,6 +430,22 @@ func (s *RoomService) GenerateAndPopulateRoom(
 
 	// Add item configs
 	for _, config := range itemConfigs {
+		for i := 0; i < config.Count; i++ {
+			instanceConfig := config
+			placeableConfigs = append(placeableConfigs, instanceConfig)
+		}
+	}
+
+	// Add NPC configs
+	for _, config := range npcConfigs {
+		for i := 0; i < config.Count; i++ {
+			instanceConfig := config
+			placeableConfigs = append(placeableConfigs, instanceConfig)
+		}
+	}
+
+	// Add Obstacle configs
+	for _, config := range obstacleConfigs {
 		for i := 0; i < config.Count; i++ {
 			instanceConfig := config
 			placeableConfigs = append(placeableConfigs, instanceConfig)
@@ -519,8 +650,112 @@ func (s *RoomService) CleanupRoom(room *entities.Room, entityType entities.CellT
 			}
 		}
 
+	case entities.CellNPC:
+		// If entityIDs is empty, remove all NPCs
+		if len(entityIDs) == 0 {
+			// Create a copy of NPC IDs to avoid modification during iteration
+			npcIDs := make([]string, len(room.NPCs))
+			for i, npc := range room.NPCs {
+				npcIDs[i] = npc.ID
+			}
+
+			// Remove each NPC by ID
+			for _, id := range npcIDs {
+				// Find the NPC entity
+				var npc *entities.NPC
+				for i := range room.NPCs {
+					if room.NPCs[i].ID == id {
+						npc = &room.NPCs[i]
+						break
+					}
+				}
+
+				if npc != nil {
+					removed, err := RemovePlaceable(room, npc)
+					if !removed || err != nil {
+						notRemoved = append(notRemoved, id)
+					}
+				} else {
+					notRemoved = append(notRemoved, id)
+				}
+			}
+		} else {
+			// Remove specific NPCs by ID
+			for _, npcID := range entityIDs {
+				// Find the NPC entity
+				var npc *entities.NPC
+				for i := range room.NPCs {
+					if room.NPCs[i].ID == npcID {
+						npc = &room.NPCs[i]
+						break
+					}
+				}
+
+				if npc != nil {
+					removed, err := RemovePlaceable(room, npc)
+					if !removed || err != nil {
+						notRemoved = append(notRemoved, npcID)
+					}
+				} else {
+					notRemoved = append(notRemoved, npcID)
+				}
+			}
+		}
+
+	case entities.CellObstacle:
+		// If entityIDs is empty, remove all obstacles
+		if len(entityIDs) == 0 {
+			// Create a copy of obstacle IDs to avoid modification during iteration
+			obstacleIDs := make([]string, len(room.Obstacles))
+			for i, obstacle := range room.Obstacles {
+				obstacleIDs[i] = obstacle.ID
+			}
+
+			// Remove each obstacle by ID
+			for _, id := range obstacleIDs {
+				// Find the obstacle entity
+				var obstacle *entities.Obstacle
+				for i := range room.Obstacles {
+					if room.Obstacles[i].ID == id {
+						obstacle = &room.Obstacles[i]
+						break
+					}
+				}
+
+				if obstacle != nil {
+					removed, err := RemovePlaceable(room, obstacle)
+					if !removed || err != nil {
+						notRemoved = append(notRemoved, id)
+					}
+				} else {
+					notRemoved = append(notRemoved, id)
+				}
+			}
+		} else {
+			// Remove specific obstacles by ID
+			for _, obstacleID := range entityIDs {
+				// Find the obstacle entity
+				var obstacle *entities.Obstacle
+				for i := range room.Obstacles {
+					if room.Obstacles[i].ID == obstacleID {
+						obstacle = &room.Obstacles[i]
+						break
+					}
+				}
+
+				if obstacle != nil {
+					removed, err := RemovePlaceable(room, obstacle)
+					if !removed || err != nil {
+						notRemoved = append(notRemoved, obstacleID)
+					}
+				} else {
+					notRemoved = append(notRemoved, obstacleID)
+				}
+			}
+		}
+
 	default:
-		return 0, nil, fmt.Errorf("unsupported entity type: %v", entityType)
+		return 0, notRemoved, fmt.Errorf("unsupported entity type: %d", entityType)
 	}
 
 	return totalXP, notRemoved, nil
@@ -554,4 +789,60 @@ func (s *RoomService) GenerateRoom(config RoomConfig) (*entities.Room, error) {
 	}
 
 	return room, nil
+}
+
+// AddItemToNPCInventory adds an item to an NPC's inventory in the room
+// Returns an error if the NPC is not found
+func (s *RoomService) AddItemToNPCInventory(room *entities.Room, npcID string, item entities.Item) error {
+	if room == nil {
+		return entities.ErrNilRoom
+	}
+
+	npc, _ := FindNPCByID(room, npcID)
+	if npc == nil {
+		return fmt.Errorf("NPC with ID %s not found in room", npcID)
+	}
+
+	// Create a copy of the item with a new ID to ensure uniqueness
+	itemCopy := item
+	itemCopy.ID = uuid.NewString()
+
+	npc.AddItemToInventory(itemCopy)
+	return nil
+}
+
+// GetNPCInventory returns all items in an NPC's inventory
+// Returns an error if the NPC is not found
+func (s *RoomService) GetNPCInventory(room *entities.Room, npcID string) ([]entities.Item, error) {
+	if room == nil {
+		return nil, entities.ErrNilRoom
+	}
+
+	npc, _ := FindNPCByID(room, npcID)
+	if npc == nil {
+		return nil, fmt.Errorf("NPC with ID %s not found in room", npcID)
+	}
+
+	return npc.GetInventory(), nil
+}
+
+// RemoveItemFromNPCInventory removes an item from an NPC's inventory by ID
+// Returns the removed item and an error if any occurred
+func (s *RoomService) RemoveItemFromNPCInventory(room *entities.Room, npcID string, itemID string) (entities.Item, error) {
+	if room == nil {
+		return entities.Item{}, entities.ErrNilRoom
+	}
+
+	npc, _ := FindNPCByID(room, npcID)
+	if npc == nil {
+		return entities.Item{}, fmt.Errorf("NPC with ID %s not found in room", npcID)
+	}
+
+	item, success := npc.RemoveItemFromInventory(itemID)
+	if !success {
+		fmt.Printf("Warning: Item with ID %s not found in NPC %s's inventory\n", itemID, npc.Name)
+		return entities.Item{}, fmt.Errorf("item with ID %s not found in NPC's inventory", itemID)
+	}
+
+	return item, nil
 }

@@ -1,32 +1,5 @@
 # DnD 5e Room Generator
 
-## Next Steps Checklist
-
-- [ ] Add a wall entity type
-  - [ ] Define wall entity in entities layer
-  - [ ] Update room service to handle wall placement
-  - [ ] Add collision detection for walls
-  
-- [ ] Add a barricade/obstacle entity type
-  - [ ] Define obstacle entity in entities layer
-  - [ ] Implement obstacle placement logic
-  - [ ] Add movement restrictions based on obstacles
-  
-- [ ] Add an NPC entity type
-  - [ ] Define NPC entity in entities layer
-  - [ ] Create NPC configuration options
-  - [ ] Implement NPC placement in rooms
-  
-- [ ] Give NPCs inventory capability
-  - [ ] Add inventory field to NPC entity
-  - [ ] Create methods to add items to NPC inventory
-  - [ ] Implement inventory management functions
-  
-- [ ] Add item transaction functionality
-  - [ ] Create methods to remove items from NPC inventory
-  - [ ] Add item transfer between entities
-  - [ ] Implement optional currency/value tracking
-
 A Go library for generating dynamic rooms for Dungeons & Dragons 5th Edition adventures.
 
 ## Features
@@ -34,6 +7,8 @@ A Go library for generating dynamic rooms for Dungeons & Dragons 5th Edition adv
 - Generate room layouts with configurable dimensions and light levels
 - Place monsters with random or specific positioning
 - Place players with random or specific positioning
+- Place NPCs with random or specific positioning
+- Place obstacles with random or specific positioning
 - Place items with random or specific positioning
 - Generate treasure rooms with scaled loot based on party size and difficulty
 - Automatic grid initialization for spatial tracking
@@ -137,12 +112,14 @@ if err != nil {
 
 ### Adding Entities to a Room
 
-The library provides a unified approach to adding entities to a room through the `AddPlaceablesToRoom` method:
+The library supports adding various entity types to a room:
 
 ```go
 // Create configurations for different entity types
 monsterConfigs := []services.MonsterConfig{...}
 playerConfigs := []services.PlayerConfig{...}
+npcConfigs := []services.NPCConfig{...}
+obstacleConfigs := []services.ObstacleConfig{...}
 itemConfigs := []services.ItemConfig{...}
 
 // Convert to generic PlaceableConfig interface
@@ -153,34 +130,29 @@ for _, config := range monsterConfigs {
 for _, config := range playerConfigs {
     placeables = append(placeables, config)
 }
+for _, config := range npcConfigs {
+    placeables = append(placeables, config)
+}
+for _, config := range obstacleConfigs {
+    placeables = append(placeables, config)
+}
 for _, config := range itemConfigs {
     placeables = append(placeables, config)
 }
 
-// Add all entities to the room with prioritized placement
-// Players will be placed first, then monsters, then items
+// Add all entities to the room
 err := roomService.AddPlaceablesToRoom(room, placeables)
 if err != nil {
-    // Handle error - only occurs if player placement fails
-    // Monster and item placement failures are handled gracefully
+    // Handle error
 }
 ```
 
-You can also use the type-specific convenience methods:
+#### Random vs. Fixed Placement
+
+Entities can be placed randomly or at specific positions:
 
 ```go
-// These methods use AddPlaceablesToRoom internally
-err = roomService.AddMonstersToRoom(room, monsterConfigs)
-err = roomService.AddPlayersToRoom(room, playerConfigs)
-err = roomService.AddItemsToRoom(room, itemConfigs)
-```
-
-### Entity Placement Details
-
-For each entity type, you can specify whether to place it at a random position or at a specific position:
-
-```go
-// Random placement (position will be determined automatically)
+// Random placement (system finds an empty position)
 monsterConfig := services.MonsterConfig{
     Name:        "Goblin",
     Key:         "monster_goblin",
@@ -196,84 +168,47 @@ monsterConfig := services.MonsterConfig{
     RandomPlace: false,  // Use the specified position
     Position:    &entities.Position{X: 7, Y: 5},
 }
-```
 
-**Important notes about entity placement:**
-
-1. For grid-based rooms:
-   - Random placement will find an empty cell in the grid
-   - Fixed placement will fail if the specified position is occupied or out of bounds
-   - The `PlaceEntity` function ensures entities don't overlap
-
-2. For gridless rooms:
-   - Random placement assigns a position within room bounds (no collision detection)
-   - Fixed placement only validates that the position is within room bounds
-   - Multiple entities can occupy the same position
-
-3. The `Count` field in entity configs:
-   - Each config creates exactly one entity
-   - To create multiple entities of the same type, create multiple configs
-
-### Moving Entities
-
-The library provides functions to move entities within a room:
-
-```go
-// Get a monster from the room
-monster := room.Monsters[0]
-
-// Define a new position
-newPosition := entities.Position{X: 3, Y: 4}
-
-// Move the monster to the new position
-err := services.MovePlaceable(room, &monster, newPosition)
-if err != nil {
-    // Handle error (position occupied, out of bounds, etc.)
+// NPC with random placement
+npcConfig := services.NPCConfig{
+    Name:        "Merchant",
+    Level:       3,
+    Count:       1,
+    RandomPlace: true,
 }
 
-// The monster's position is now updated both in the room's slice and in the original variable
-fmt.Printf("Monster position: (%d, %d)\n", monster.Position.X, monster.Position.Y)
-```
-
-### Removing Entities
-
-To remove entities from a room:
-
-```go
-// Remove a monster from the room
-monster := room.Monsters[0]
-removed, err := services.RemovePlaceable(room, &monster)
-if err != nil {
-    // Handle error
-}
-if removed {
-    fmt.Println("Monster was successfully removed")
+// Obstacle with fixed placement
+obstacleConfig := services.ObstacleConfig{
+    Name:        "Stone Wall",
+    Key:         "wall_stone",
+    Blocking:    true,
+    Count:       1,
+    RandomPlace: false,
+    Position:    &entities.Position{X: 5, Y: 3},
 }
 ```
 
-### Generating and Populating a Room in One Step
+### Generating a Complete Room with Entities
 
-The `GenerateAndPopulateRoom` method provides a comprehensive way to create and populate a room with multiple entity types in a single call, with optional encounter balancing:
+For convenience, the library provides a method to generate and populate a room in one step:
 
 ```go
-// Configure room
+// Configure the room
 roomConfig := services.RoomConfig{
-    Width:       15,
-    Height:      10,
-    LightLevel:  entities.LightLevelDim,
-    Description: "A dimly lit chamber with ancient runes on the walls",
-    UseGrid:     true,
+    Width:       20,
+    Height:      15,
+    LightLevel:  entities.LightLevelBright,
+    Description: "A well-lit chamber with stone walls",
+    UseGrid:     true,  // Enable grid for this room
 }
 
-// All entity configurations are optional, but at least one type must be provided
-// If you don't need a particular entity type, pass an empty slice or nil
-
-// Optional: Configure monsters
+// Configure monsters
 monsterConfigs := []services.MonsterConfig{
     {
         Name:        "Goblin",
         Key:         "monster_goblin",
         CR:          0.25,
+        Count:       3,
         RandomPlace: true,
     },
     {
@@ -300,12 +235,42 @@ playerConfigs := []services.PlayerConfig{
     },
 }
 
-// Optional: Configure items
+// Configure NPCs
+npcConfigs := []services.NPCConfig{
+    {
+        Name:        "Merchant",
+        Level:       3,
+        Count:       1,
+        RandomPlace: true,
+    },
+}
+
+// Configure obstacles
+obstacleConfigs := []services.ObstacleConfig{
+    {
+        Name:        "Stone Wall",
+        Key:         "wall_stone",
+        Blocking:    true,
+        Count:       2,
+        RandomPlace: true,
+    },
+    {
+        Name:        "Barricade",
+        Key:         "barricade_wooden",
+        Blocking:    true,
+        Count:       1,
+        RandomPlace: false,
+        Position:    &entities.Position{X: 10, Y: 7},
+    },
+}
+
+// Configure items
 itemConfigs := []services.ItemConfig{
     {
-        Name:        "Healing Potion",
-        Key:         "item_potion_healing",
+        Name:        "Health Potion",
+        Key:         "item_potion_health",
         Value:       50,
+        Count:       2,
         RandomPlace: true,
     },
     {
@@ -330,14 +295,16 @@ party := &entities.Party{
 difficulty := entities.EncounterDifficultyHard
 
 // Generate and populate room in one step with automatic balancing
-// IMPORTANT: At least one of monsterConfigs, playerConfigs, or itemConfigs must be non-empty
+// IMPORTANT: At least one of monsterConfigs, playerConfigs, npcConfigs, obstacleConfigs, or itemConfigs must be non-empty
 room, err := roomService.GenerateAndPopulateRoom(
     roomConfig,
-    monsterConfigs,  // Pass empty slice ([]services.MonsterConfig{}) if not needed
-    playerConfigs,   // Pass empty slice ([]services.PlayerConfig{}) if not needed
-    itemConfigs,     // Pass empty slice ([]services.ItemConfig{}) if not needed
-    party,           // Pass nil if no balancing is needed
-    difficulty,      // Only used if party is provided
+    monsterConfigs,   // Pass empty slice ([]services.MonsterConfig{}) if not needed
+    playerConfigs,    // Pass empty slice ([]services.PlayerConfig{}) if not needed
+    npcConfigs,       // Pass empty slice ([]services.NPCConfig{}) if not needed
+    obstacleConfigs,  // Pass empty slice ([]services.ObstacleConfig{}) if not needed
+    itemConfigs,      // Pass empty slice ([]services.ItemConfig{}) if not needed
+    party,            // Pass nil if no balancing is needed
+    difficulty,       // Only used if party is provided
 )
 if err != nil {
     // Handle error
@@ -350,58 +317,9 @@ fmt.Printf("Light level: %s\n", room.LightLevel)
 // Access entity properties
 fmt.Printf("Players: %d\n", len(room.Players))
 fmt.Printf("Monsters: %d\n", len(room.Monsters))
+fmt.Printf("NPCs: %d\n", len(room.NPCs))
+fmt.Printf("Obstacles: %d\n", len(room.Obstacles))
 fmt.Printf("Items: %d\n", len(room.Items))
-```
-
-This method handles several tasks in one operation:
-1. Creates a new room based on the provided configuration
-2. Optionally balances monster selection based on party and difficulty
-3. Places entities in the room with proper prioritization
-4. Handles placement failures gracefully
-
-### Encounter Balancing
-
-The library includes a balancer that can adjust monster selection based on party composition and desired difficulty:
-
-```go
-// Create a balancer
-balancer := services.NewBalancer()
-
-// Create a party
-party := entities.Party{
-    Members: []entities.PartyMember{
-        {Name: "Aragorn", Level: 5},
-        {Name: "Legolas", Level: 4},
-        {Name: "Gimli", Level: 5},
-    },
-}
-
-// Calculate target CR for this party at Hard difficulty
-targetCR, err := balancer.CalculateTargetCR(party, entities.EncounterDifficultyHard)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Target CR: %.2f\n", targetCR)
-
-// Determine the difficulty of an encounter with specific monsters
-monsters := []entities.Monster{
-    {Name: "Goblin", CR: 0.25},
-    {Name: "Goblin", CR: 0.25},
-    {Name: "Hobgoblin", CR: 0.5},
-    {Name: "Bugbear", CR: 1.0},
-}
-difficulty, err := balancer.DetermineEncounterDifficulty(monsters, party)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Encounter difficulty: %s\n", difficulty)
-
-// Adjust monster selection to match target difficulty
-adjustedMonsters, err := balancer.AdjustMonsterSelection(monsters, party, entities.EncounterDifficultyMedium)
-if err != nil {
-    // Handle error
-}
-fmt.Printf("Adjusted monster count: %d\n", len(adjustedMonsters))
 ```
 
 ### Managing Entities in a Room
@@ -416,6 +334,15 @@ if err != nil {
 fmt.Printf("XP gained: %d\n", xpGained)
 if len(notRemoved) > 0 {
     fmt.Printf("Some monsters could not be removed: %v\n", notRemoved)
+}
+
+// Remove all obstacles from a room (e.g., after breaking them)
+_, notRemoved, err = roomService.CleanupRoom(room, entities.CellObstacle, []string{})
+if err != nil {
+    // Handle error
+}
+if len(notRemoved) > 0 {
+    fmt.Printf("Some obstacles could not be removed: %v\n", notRemoved)
 }
 
 // Remove all items from a room (e.g., after collecting all treasure)

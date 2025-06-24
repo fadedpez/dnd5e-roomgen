@@ -8,6 +8,8 @@ const (
 	CellMonster
 	CellItem
 	CellPlayer
+	CellNPC
+	CellObstacle
 )
 
 // Cell represents a single cell in the room grid
@@ -31,7 +33,9 @@ type Room struct {
 	RoomType    RoomType   // type of room
 	Monsters    []Monster  // Monsters in the room
 	Players     []Player   // Players in the room
+	NPCs        []NPC      // NPCs in the room
 	Items       []Item     // Items in the room
+	Obstacles   []Obstacle // Obstacles in the room
 	Grid        [][]Cell   // Grid of cells in the room (if grid is used)
 }
 
