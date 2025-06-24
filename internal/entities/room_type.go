@@ -1,13 +1,6 @@
 package entities
 
-// RoomType defines the behavior of a specific type of room
-type RoomType interface {
-	// Type returns the string identifier for this room type
-	Type() string
-
-	// Description returns a human-readable description of the room type
-	Description() string
-}
+// RoomTypes Is a Future Concept and Not Fully Implemented.
 
 // CombatRoomType represents a room with monsters
 type CombatRoomType struct{}
