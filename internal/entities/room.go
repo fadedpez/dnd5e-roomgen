@@ -36,6 +36,7 @@ type Monster struct {
 	Key      string   // Reference key from the API
 	Name     string   // Name of the monster
 	CR       float64  // Challenge Rating of the monster
+	XP       int      // Experience points awarded when defeated
 	Position Position // Position of the monster in the room (if grid is used)
 }
 

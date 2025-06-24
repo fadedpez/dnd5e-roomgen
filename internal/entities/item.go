@@ -49,28 +49,6 @@ func (i *Item) GetCellType() CellType {
 	return CellItem
 }
 
-// AddItem adds an item to the room and places it on the grid if available
-func AddItem(room *Room, item Item) error {
-	if room == nil {
-		return ErrNilRoom
-	}
-
-	return PlaceEntity(room, &item)
-}
-
-// RemoveItem removes an item from the room by its ID
-// Returns true if the item was found and removed, false otherwise
-// If the room has a grid, the cell where the item was is cleared
-func RemoveItem(room *Room, itemID string) (bool, error) {
-	if room == nil {
-		return false, ErrNilRoom
-	}
-
-	// Use the generic RemoveEntity function but adapt the return value
-	removed := RemoveEntity(room, itemID, CellItem)
-	return removed, nil
-}
-
 // ItemConfig represents configuration for an item to be placed in a room
 type ItemConfig struct {
 	Key      string   // Reference key from the API

@@ -5,7 +5,6 @@ import (
 	"math"
 
 	"github.com/fadedpez/dnd5e-roomgen/internal/entities"
-	"github.com/fadedpez/dnd5e-roomgen/internal/repositories"
 )
 
 // Balancer defines the interface for encounter balancing functionality
@@ -21,23 +20,19 @@ type Balancer interface {
 }
 
 // StandardBalancer implements the Balancer interface using D&D 5e rules
-type StandardBalancer struct {
-	monsterRepo repositories.MonsterRepository
-}
+type StandardBalancer struct{}
 
 // NewBalancer creates a new StandardBalancer
-func NewBalancer(monsterRepo repositories.MonsterRepository) *StandardBalancer {
-	return &StandardBalancer{
-		monsterRepo: monsterRepo,
-	}
+func NewBalancer() *StandardBalancer {
+	return &StandardBalancer{}
 }
 
 // difficultyMultipliers maps difficulty levels to CR multipliers
 var difficultyMultipliers = map[entities.EncounterDifficulty]float64{
-	entities.EncounterDifficultyEasy:   0.5,  // Easy encounter: CR = 0.5 * party level
-	entities.EncounterDifficultyMedium: 0.75, // Medium encounter: CR = 0.75 * party level
-	entities.EncounterDifficultyHard:   1.0,  // Hard encounter: CR = 1.0 * party level
-	entities.EncounterDifficultyDeadly: 1.5,  // Deadly encounter: CR = 1.5 * party level
+	entities.EncounterDifficultyEasy:   0.5, // Easy encounter: CR = 0.5 * party level
+	entities.EncounterDifficultyMedium: 1,   // Medium encounter: CR = 1 * party level
+	entities.EncounterDifficultyHard:   1.5, // Hard encounter: CR = 1.5 * party level
+	entities.EncounterDifficultyDeadly: 2,   // Deadly encounter: CR = 2 * party level
 }
 
 // partySizeAdjustments maps party size to CR adjustments

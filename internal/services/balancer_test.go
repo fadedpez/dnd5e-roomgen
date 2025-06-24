@@ -34,14 +34,7 @@ func createTestMonsters(crs ...float64) []entities.Monster {
 
 // createTestBalancer creates a balancer with a mock repository for testing
 func createTestBalancer() *StandardBalancer {
-	mockRepo := &MockMonsterRepository{
-		xpValues: map[string]int{
-			"monster_goblin": 50,
-			"monster_orc":    100,
-			"monster_troll":  450,
-		},
-	}
-	return NewBalancer(mockRepo)
+	return NewBalancer()
 }
 
 func TestCalculateTargetCR(t *testing.T) {
@@ -66,21 +59,21 @@ func TestCalculateTargetCR(t *testing.T) {
 			name:        "Four players medium encounter",
 			party:       createTestParty(4, 3),
 			difficulty:  entities.EncounterDifficultyMedium,
-			expectedCR:  2.25, // 3 * 0.75 * 1.0 = 2.25
+			expectedCR:  3, // 3 * 1.0 * 1.0 = 3
 			expectError: false,
 		},
 		{
 			name:        "Six players hard encounter",
 			party:       createTestParty(6, 10),
 			difficulty:  entities.EncounterDifficultyHard,
-			expectedCR:  15, // 10 * 1.0 * 1.5 = 15
+			expectedCR:  22.5, // 10 * 1.5 * 1.5 = 22.5
 			expectError: false,
 		},
 		{
 			name:        "Five players deadly encounter",
 			party:       createTestParty(5, 8),
 			difficulty:  entities.EncounterDifficultyDeadly,
-			expectedCR:  15, // 8 * 1.5 * 1.25 = 15
+			expectedCR:  20, // 8 * 2.0 * 1.0 = 16
 			expectError: false,
 		},
 		{
@@ -143,30 +136,30 @@ func TestDetermineEncounterDifficulty(t *testing.T) {
 		},
 		{
 			name:         "Medium difficulty monsters",
-			monsters:     createTestMonsters(1, 1, 1),
+			monsters:     createTestMonsters(5, 0, 0), // Total CR 5, avg level 5, 4 players: 5/(5*1.0) = 1.0 = medium threshold
 			party:        createTestParty(4, 5),
 			expectedDiff: entities.EncounterDifficultyMedium,
 			expectError:  false,
 		},
 		{
 			name:         "Hard difficulty monsters",
-			monsters:     createTestMonsters(2, 2, 1),
+			monsters:     createTestMonsters(7.5, 0, 0), // Total CR 7.5, avg level 5, 4 players: 7.5/(5*1.0) = 1.5 = hard threshold
 			party:        createTestParty(4, 5),
 			expectedDiff: entities.EncounterDifficultyHard,
 			expectError:  false,
 		},
 		{
 			name:         "Deadly difficulty monsters",
-			monsters:     createTestMonsters(5, 5, 5),
+			monsters:     createTestMonsters(10, 0, 0), // Total CR 10, avg level 5, 4 players: 10/(5*1.0) = 2.0 = deadly threshold
 			party:        createTestParty(4, 5),
 			expectedDiff: entities.EncounterDifficultyDeadly,
 			expectError:  false,
 		},
 		{
 			name:         "Solo player adjustment",
-			monsters:     createTestMonsters(1),
+			monsters:     createTestMonsters(5, 0, 0), // Total CR 5, avg level 5, 1 player: 5/(5*0.5) = 2.0 = deadly threshold
 			party:        createTestParty(1, 5),
-			expectedDiff: entities.EncounterDifficultyDeadly, // 1 CR vs level 5 solo player (with 0.5 adjustment) is deadly
+			expectedDiff: entities.EncounterDifficultyDeadly, // 5 CR vs level 5 solo player (with 0.5 adjustment) is deadly
 			expectError:  false,
 		},
 		{
@@ -210,7 +203,7 @@ func TestAdjustMonsterSelection(t *testing.T) {
 		{
 			name: "Already balanced encounter",
 			monsterConfigs: []MonsterConfig{
-				{Name: "Goblin", Key: "monster_goblin", CR: 0.25, Count: 4, RandomPlace: true},
+				{Name: "Goblin", Key: "monster_goblin", CR: 0.25, Count: 2, RandomPlace: true},
 			},
 			party:      createTestParty(4, 1), // Level 1 party
 			difficulty: entities.EncounterDifficultyEasy,
@@ -218,7 +211,7 @@ func TestAdjustMonsterSelection(t *testing.T) {
 				// Should remain unchanged since it's already balanced
 				assert.Len(t, configs, 1)
 				assert.Equal(t, "Goblin", configs[0].Name)
-				assert.Equal(t, 4, configs[0].Count)
+				assert.Equal(t, 2, configs[0].Count) // 2 goblins = 0.5 CR, which matches target CR for Easy
 			},
 			expectError: false,
 		},
@@ -234,8 +227,8 @@ func TestAdjustMonsterSelection(t *testing.T) {
 				assert.Len(t, configs, 2)
 
 				// Total CR before: 2*0.25 + 1*0.5 = 1
-				// Target CR for deadly: 5*1.5*1.0 = 7.5
-				// Scaling factor: 7.5/1 = 7.5
+				// Target CR for deadly: 5*2.0*1.0 = 10
+				// Scaling factor: 10/1 = 10
 
 				// Check that counts are scaled up
 				totalCountBefore := 3 // 2 goblins + 1 orc
