@@ -1,5 +1,32 @@
 # DnD 5e Room Generator
 
+## Next Steps Checklist
+
+- [ ] Add a wall entity type
+  - [ ] Define wall entity in entities layer
+  - [ ] Update room service to handle wall placement
+  - [ ] Add collision detection for walls
+  
+- [ ] Add a barricade/obstacle entity type
+  - [ ] Define obstacle entity in entities layer
+  - [ ] Implement obstacle placement logic
+  - [ ] Add movement restrictions based on obstacles
+  
+- [ ] Add an NPC entity type
+  - [ ] Define NPC entity in entities layer
+  - [ ] Create NPC configuration options
+  - [ ] Implement NPC placement in rooms
+  
+- [ ] Give NPCs inventory capability
+  - [ ] Add inventory field to NPC entity
+  - [ ] Create methods to add items to NPC inventory
+  - [ ] Implement inventory management functions
+  
+- [ ] Add item transaction functionality
+  - [ ] Create methods to remove items from NPC inventory
+  - [ ] Add item transfer between entities
+  - [ ] Implement optional currency/value tracking
+
 A Go library for generating dynamic rooms for Dungeons & Dragons 5th Edition adventures.
 
 ## Features
