@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/fadedpez/dnd5e-roomgen/internal/entities"
-	"github.com/fadedpez/dnd5e-roomgen/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,37 +120,23 @@ func TestGenerateRoom(t *testing.T) {
 	}
 }
 
-// createTestMonsterConfigWithRealData creates a monster configuration using real monster data from test files
-func createTestMonsterConfigWithRealData(t *testing.T, key string, count int, randomPlace bool, position *entities.Position) MonsterConfig {
-	// Load monster data
-	monsters, err := testutil.LoadAllMonsters()
-	require.NoError(t, err, "Failed to load monster data")
-
-	// Get the specific monster
-	monster, ok := monsters[key]
-	require.True(t, ok, "Monster %s not found in test data", key)
-
+// createTestMonsterConfig creates a monster configuration with the given parameters
+func createTestMonsterConfig(name string, key string, cr float64, count int, randomPlace bool, position *entities.Position) MonsterConfig {
 	return MonsterConfig{
-		Name:        monster.Name,
+		Name:        name,
 		Key:         key,
-		CR:          monster.ChallengeRating,
+		CR:          cr,
 		Count:       count,
 		RandomPlace: randomPlace,
 		Position:    position,
 	}
 }
 
-// createTestItemConfigWithRealData creates an item configuration using real item data from test files
-func createTestItemConfigWithRealData(t *testing.T, key string, randomPlace bool, position *entities.Position) ItemConfig {
-	items, err := testutil.LoadAllEquipment()
-	require.NoError(t, err, "Failed to load item data")
-
-	item, ok := items[key]
-	require.True(t, ok, "Item %s not found in test data", key)
-
+// createTestItemConfig creates an item configuration with the given parameters
+func createTestItemConfig(name string, key string, randomPlace bool, position *entities.Position) ItemConfig {
 	return ItemConfig{
+		Name:        name,
 		Key:         key,
-		Name:        item.Name, // Set the name from the loaded item data
 		RandomPlace: randomPlace,
 		Position:    position,
 	}
@@ -497,11 +482,11 @@ func TestGridlessRoomEntityPlacement(t *testing.T) {
 
 	// Test monster placement
 	monsterConfigs := []MonsterConfig{
-		createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
-		createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
-		createTestMonsterConfigWithRealData(t, "goblin", 1, true, nil),
-		createTestMonsterConfigWithRealData(t, "bandit-captain", 1, false, &entities.Position{X: 5, Y: 5}),
-		createTestMonsterConfigWithRealData(t, "bandit-captain", 1, false, &entities.Position{X: 5, Y: 5}),
+		createTestMonsterConfig("Goblin", "monster_goblin", 0.25, 1, true, nil),
+		createTestMonsterConfig("Goblin", "monster_goblin", 0.25, 1, true, nil),
+		createTestMonsterConfig("Goblin", "monster_goblin", 0.25, 1, true, nil),
+		createTestMonsterConfig("Bandit Captain", "monster_bandit-captain", 2, 1, false, &entities.Position{X: 5, Y: 5}),
+		createTestMonsterConfig("Bandit Captain", "monster_bandit-captain", 2, 1, false, &entities.Position{X: 5, Y: 5}),
 	}
 
 	// Convert MonsterConfigs to PlaceableConfigs
@@ -554,9 +539,9 @@ func TestGridlessRoomEntityPlacement(t *testing.T) {
 
 	// Test item placement
 	itemConfigs := []ItemConfig{
-		createTestItemConfigWithRealData(t, "abacus", true, nil),
-		createTestItemConfigWithRealData(t, "abacus", true, nil),
-		createTestItemConfigWithRealData(t, "battleaxe", false, &entities.Position{X: 7, Y: 7}),
+		createTestItemConfig("Abacus", "equipment_abacus", true, nil),
+		createTestItemConfig("Abacus", "equipment_abacus", true, nil),
+		createTestItemConfig("Battleaxe", "equipment_battleaxe", false, &entities.Position{X: 7, Y: 7}),
 	}
 
 	// Convert ItemConfigs to PlaceableConfigs
@@ -806,7 +791,7 @@ func TestPlacementOnGrid(t *testing.T) {
 			entity: &entities.Item{
 				ID:       "i1",
 				Name:     "Potion of Healing",
-				Key:      "potion_healing",
+				Key:      "equipment_potion-of-healing",
 				Position: entities.Position{X: 8, Y: 1},
 			},
 			expectedError: false,
@@ -1141,10 +1126,10 @@ func TestEntityPlacementPriority(t *testing.T) {
 
 	// Create configs in reverse priority order (items, obstacles, NPCs, monsters, players)
 	// This tests that the priority ordering in AddPlaceablesToRoom works correctly
-	itemConfig := createTestItemConfigWithRealData(t, "abacus", false, targetPos)
+	itemConfig := createTestItemConfig("Abacus", "equipment_abacus", false, targetPos)
 	obstacleConfig := createTestObstacleConfig("Stone Wall", "wall_stone", true, 1, false, targetPos)
 	npcConfig := createTestNPCConfig("Merchant", 3, 1, false, targetPos, nil)
-	monsterConfig := createTestMonsterConfigWithRealData(t, "goblin", 1, false, targetPos)
+	monsterConfig := createTestMonsterConfig("Goblin", "monster_goblin", 0.25, 1, false, targetPos)
 	playerConfig := createTestPlayerConfig("Aragorn", 5, false, targetPos)
 
 	// Combine all configs into a single slice
