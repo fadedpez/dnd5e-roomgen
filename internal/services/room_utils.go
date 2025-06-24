@@ -37,19 +37,6 @@ func InitializeGrid(room *entities.Room) {
 	}
 }
 
-// RemoveItem removes an item from the room by its ID
-// Returns true if the item was found and removed, false otherwise
-// If the room has a grid, the cell where the item was is cleared
-func RemoveItem(room *entities.Room, itemID string) (bool, error) {
-	if room == nil {
-		return false, entities.ErrNilRoom
-	}
-
-	// Use the generic RemoveEntity function but adapt the return value
-	removed := removeEntity(room, itemID, entities.CellItem)
-	return removed, nil
-}
-
 // MovePlaceable moves any placeable entity from its current position to a new position
 // Returns error if:
 // - Room is nil
@@ -78,6 +65,8 @@ func MovePlaceable(room *entities.Room, entity entities.Placeable, newPosition e
 			for i := range room.Monsters {
 				if room.Monsters[i].ID == entityID {
 					room.Monsters[i].Position = newPosition
+					// Also update the passed entity
+					entity.SetPosition(newPosition)
 					return nil
 				}
 			}
@@ -85,6 +74,8 @@ func MovePlaceable(room *entities.Room, entity entities.Placeable, newPosition e
 			for i := range room.Players {
 				if room.Players[i].ID == entityID {
 					room.Players[i].Position = newPosition
+					// Also update the passed entity
+					entity.SetPosition(newPosition)
 					return nil
 				}
 			}
@@ -92,6 +83,8 @@ func MovePlaceable(room *entities.Room, entity entities.Placeable, newPosition e
 			for i := range room.Items {
 				if room.Items[i].ID == entityID {
 					room.Items[i].Position = newPosition
+					// Also update the passed entity
+					entity.SetPosition(newPosition)
 					return nil
 				}
 			}
@@ -147,14 +140,21 @@ func MovePlaceable(room *entities.Room, entity entities.Placeable, newPosition e
 		return fmt.Errorf("entity with ID %s not found in room", entityID)
 	}
 
-	// Clear the old cell
-	room.Grid[oldPosition.Y][oldPosition.X] = entities.Cell{Type: entities.CellTypeEmpty}
+	// Update the grid
+	// Clear old position
+	if oldPosition.X >= 0 && oldPosition.X < room.Width &&
+		oldPosition.Y >= 0 && oldPosition.Y < room.Height {
+		room.Grid[oldPosition.Y][oldPosition.X] = entities.Cell{Type: entities.CellTypeEmpty}
+	}
 
-	// Update the grid with the new position
+	// Set new position
 	room.Grid[newPosition.Y][newPosition.X] = entities.Cell{
 		Type:     cellType,
 		EntityID: entityID,
 	}
+
+	// Also update the passed entity
+	entity.SetPosition(newPosition)
 
 	return nil
 }
